@@ -57,13 +57,16 @@ type Option struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// Record holds everything needed to populate ~/.my.cnf for one database target.
+// Record holds one set of MySQL credentials to write into ~/.my.cnf.
+// Deliberately no remote host field: the same user/password commonly serves
+// several hosts within an environment, and the actual target is normally
+// given on the command line (mysql -h ...), which overrides the option file
+// anyway. Socket is kept because it's local-machine config, not per-target.
 type Record struct {
 	ID       string `json:"id"`
 	FolderID string `json:"folder_id,omitempty"` // "" = root level
 	Group    string `json:"group,omitempty"`     // free-text display cluster, e.g. "auth", "mail"
 	Name     string `json:"name"`
-	Host     string `json:"host,omitempty"`
 	Port     int    `json:"port,omitempty"`
 	Socket   string `json:"socket,omitempty"`
 	User     string `json:"user"`

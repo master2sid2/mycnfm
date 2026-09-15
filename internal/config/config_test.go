@@ -24,8 +24,7 @@ func TestOpenSaveRoundTrip(t *testing.T) {
 	r.FolderID = env.ID
 	r.Group = "auth"
 	r.Name = "auth-01"
-	r.Host = "10.0.0.5"
-	r.Port = 3306
+	r.Port = 3307
 	r.User = "root"
 	r.Password = "s3cret"
 	r.Tags = []string{"prod", "ro"}

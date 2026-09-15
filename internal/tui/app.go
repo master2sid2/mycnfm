@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +14,18 @@ import (
 	"mycnfm/internal/mycnf"
 	"mycnfm/internal/version"
 )
+
+// statusDisplayTime is how long a transient status message (saved, applied,
+// deleted, ...) stays in the header before it reverts to showing the active
+// profile.
+const statusDisplayTime = 4 * time.Second
+
+// tickMsg drives the header's status-expiry check once a second.
+type tickMsg time.Time
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
 
 type view int
 
@@ -65,10 +78,11 @@ type App struct {
 
 	myCnfPath string
 
-	width       int
-	height      int
-	statusMsg   string
-	statusIsErr bool
+	width          int
+	height         int
+	statusMsg      string
+	statusIsErr    bool
+	statusExpireAt time.Time // zero = no transient status pending expiry
 }
 
 func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bool) *App {
@@ -85,6 +99,9 @@ func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bo
 		statusMsg:   statusMsg,
 		statusIsErr: statusIsErr,
 		filterInput: fi,
+	}
+	if statusMsg != "" {
+		a.statusExpireAt = time.Now().Add(statusDisplayTime)
 	}
 	a.list = newListModel()
 	a.refreshList()
@@ -108,7 +125,7 @@ func (a *App) rootFolderID() string {
 	return a.folderStack[0].ID
 }
 
-func (a *App) Init() tea.Cmd { return nil }
+func (a *App) Init() tea.Cmd { return tickCmd() }
 
 // ── Entry assembly ────────────────────────────────────────────────────────────
 
@@ -185,7 +202,7 @@ func (a *App) buildFilteredEntries() []listEntry {
 	var matched []config.Record
 	for _, r := range records {
 		hay := strings.ToLower(strings.Join([]string{
-			r.Name, r.Host, r.Socket, r.User, r.Database, r.Group,
+			r.Name, r.Socket, r.User, r.Database, r.Group,
 			strings.Join(r.Tags, " "), a.pathLabel(r.FolderID),
 		}, " "))
 		if strings.Contains(hay, q) {
@@ -258,6 +275,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
 		return a, tea.Quit
+	}
+
+	if _, ok := msg.(tickMsg); ok {
+		if !a.statusExpireAt.IsZero() && !time.Now().Before(a.statusExpireAt) {
+			a.statusMsg = ""
+			a.statusExpireAt = time.Time{}
+		}
+		return a, tickCmd()
 	}
 
 	switch msg := msg.(type) {
@@ -380,8 +405,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) setOK(msg string)  { a.statusMsg, a.statusIsErr = msg, false }
-func (a *App) setErr(msg string) { a.statusMsg, a.statusIsErr = msg, true }
+func (a *App) setOK(msg string)  { a.setStatus(msg, false) }
+func (a *App) setErr(msg string) { a.setStatus(msg, true) }
+
+func (a *App) setStatus(msg string, isErr bool) {
+	a.statusMsg, a.statusIsErr = msg, isErr
+	a.statusExpireAt = time.Now().Add(statusDisplayTime)
+}
 
 func (a *App) recomputeListSize() {
 	leftW := a.width/2 - 2
@@ -745,21 +775,26 @@ func (a *App) listView() string {
 	appS := hdrAppStyle.Render("🗄  mycnfm")
 	breadS := a.breadcrumb()
 
-	var rightS string
+	// slotS is a single slot that normally shows the active profile (if any)
+	// and is temporarily replaced by the last event (saved/applied/deleted/…)
+	// for statusDisplayTime before reverting. Version sits to its right and
+	// is always shown.
+	var slotS string
 	switch {
 	case a.statusMsg != "" && a.statusIsErr:
-		rightS = hdrErrStyle.Render("✗  " + a.statusMsg)
+		slotS = hdrErrStyle.Render("✗  " + a.statusMsg)
 	case a.statusMsg != "":
-		rightS = hdrOkStyle.Render("✓  " + a.statusMsg)
+		slotS = hdrOkStyle.Render("✓  " + a.statusMsg)
 	case a.store.ActiveID() != "":
 		if r, ok := a.store.Get(a.store.ActiveID()); ok {
-			rightS = hdrActiveStyle.Render("●  " + mycnf.Label(a.store, r))
+			slotS = hdrActiveStyle.Render("●  " + mycnf.Label(a.store, r))
 		} else {
-			rightS = hdrVerStyle.Render("v" + version.Version)
+			slotS = hdrVerStyle.Render("○  no active profile")
 		}
 	default:
-		rightS = hdrVerStyle.Render("v" + version.Version)
+		slotS = hdrVerStyle.Render("○  no active profile")
 	}
+	rightS := lipgloss.JoinHorizontal(lipgloss.Top, slotS, hdrVerStyle.Render("  v"+version.Version))
 
 	leftSide := lipgloss.JoinHorizontal(lipgloss.Top, appS, breadS)
 	gapW := max(0, a.width-lipgloss.Width(leftSide)-lipgloss.Width(rightS))
@@ -900,11 +935,11 @@ func (a *App) detailsView(width int) string {
 	if path := a.pathLabel(r.FolderID); path != "" {
 		rows = append(rows, [2]string{"Path", path})
 	}
-	if r.Host != "" {
-		rows = append(rows, [2]string{"Host", fmt.Sprintf("%s:%d", r.Host, r.Port)})
-	}
 	if r.Socket != "" {
 		rows = append(rows, [2]string{"Socket", r.Socket})
+	}
+	if r.Port != 0 {
+		rows = append(rows, [2]string{"Port", fmt.Sprintf("%d", r.Port)})
 	}
 	rows = append(rows, [2]string{"User", r.User})
 

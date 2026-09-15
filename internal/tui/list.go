@@ -20,15 +20,15 @@ type sortMode int
 
 const (
 	sortByName sortMode = iota
-	sortByHost
+	sortBySocket
 	sortByUpdated
 	sortModeCount
 )
 
 func (s sortMode) label() string {
 	switch s {
-	case sortByHost:
-		return "host"
+	case sortBySocket:
+		return "socket"
 	case sortByUpdated:
 		return "updated"
 	default:
@@ -40,15 +40,8 @@ func sortRecords(recs []config.Record, mode sortMode, desc bool) {
 	sort.SliceStable(recs, func(i, j int) bool {
 		var less bool
 		switch mode {
-		case sortByHost:
-			hi, hj := recs[i].Host, recs[j].Host
-			if hi == "" {
-				hi = recs[i].Socket
-			}
-			if hj == "" {
-				hj = recs[j].Socket
-			}
-			less = strings.ToLower(hi) < strings.ToLower(hj)
+		case sortBySocket:
+			less = strings.ToLower(recs[i].Socket) < strings.ToLower(recs[j].Socket)
 		case sortByUpdated:
 			less = recs[i].UpdatedAt.Before(recs[j].UpdatedAt)
 		default:
@@ -62,6 +55,32 @@ func sortRecords(recs []config.Record, mode sortMode, desc bool) {
 }
 
 func sortStrings(ss []string) { sort.Strings(ss) }
+
+// defaultDisplayPort mirrors mycnf's own default-port constant so the list
+// doesn't clutter every row with ":3306" — it's implied when omitted.
+const defaultDisplayPort = 3306
+
+// connSummary renders a record's connection details for list/detail display:
+// "user@socket", or just "user", plus ":port" when it differs from the
+// default. There is deliberately no remote host — see config.Record.
+func connSummary(r config.Record) string {
+	var s string
+	switch {
+	case r.Socket != "" && r.User != "":
+		s = fmt.Sprintf("%s@%s", r.User, r.Socket)
+	case r.Socket != "":
+		s = r.Socket
+	case r.User != "":
+		s = r.User
+	}
+	if r.Port != 0 && r.Port != defaultDisplayPort {
+		s += fmt.Sprintf(":%d", r.Port)
+	}
+	if r.Database != "" {
+		s += "/" + r.Database
+	}
+	return s
+}
 
 // ── Tag chip rendering ────────────────────────────────────────────────────────
 
@@ -208,14 +227,13 @@ func (d entryDelegate) renderRecord(w io.Writer, e listEntry, width int, selecte
 	r := e.record
 	chips := renderTagChips(r.Tags)
 
-	conn := r.Socket
-	if r.Host != "" {
-		conn = fmt.Sprintf("%s@%s:%d", r.User, r.Host, r.Port)
-	} else if r.User != "" {
-		conn = fmt.Sprintf("%s@%s", r.User, conn)
-	}
+	conn := connSummary(r)
 	if e.path != "" {
-		conn += "   " + e.path
+		if conn != "" {
+			conn += "   " + e.path
+		} else {
+			conn = e.path
+		}
 	}
 
 	activeBadge := ""

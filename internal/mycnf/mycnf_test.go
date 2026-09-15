@@ -13,8 +13,8 @@ func TestApplyWritesClientSection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{
 		Name:     "auth-01",
-		Host:     "10.0.0.5",
 		Port:     3307,
+		Socket:   "/var/run/mysqld/mysqld.sock",
 		User:     "root",
 		Password: "s3cret",
 		Database: "appdb",
@@ -36,8 +36,8 @@ func TestApplyWritesClientSection(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"[client]",
-		"host     = 10.0.0.5",
 		"port     = 3307",
+		"socket   = /var/run/mysqld/mysqld.sock",
 		"user     = root",
 		`password = "s3cret"`,
 		"database = appdb",
@@ -59,7 +59,7 @@ func TestApplyOmitsBlankConnectionFields(t *testing.T) {
 
 	data, _ := os.ReadFile(path)
 	content := string(data)
-	for _, unwanted := range []string{"host", "port", "socket", "database"} {
+	for _, unwanted := range []string{"port", "socket", "database"} {
 		if strings.Contains(content, unwanted) {
 			t.Errorf("expected no %q line when field is blank, got:\n%s", unwanted, content)
 		}
@@ -72,7 +72,7 @@ func TestApplyOmitsBlankConnectionFields(t *testing.T) {
 func TestApplyOmitsDefaultPortButKeepsCustomPort(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 
-	def := config.Record{Name: "x", Host: "h", Port: 3306, User: "u"}
+	def := config.Record{Name: "x", Port: 3306, User: "u"}
 	if err := Apply(path, "x", def, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestApplyOmitsDefaultPortButKeepsCustomPort(t *testing.T) {
 		t.Errorf("default port 3306 should be omitted, got:\n%s", data)
 	}
 
-	custom := config.Record{Name: "x", Host: "h", Port: 3307, User: "u"}
+	custom := config.Record{Name: "x", Port: 3307, User: "u"}
 	if err := Apply(path, "x", custom, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestApplyOmitsDefaultPortButKeepsCustomPort(t *testing.T) {
 func TestApplyQuotesSpecialCharacterPasswords(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{
-		Name: "x", Host: "h", Port: 1, User: "u",
+		Name: "x", User: "u",
 		Password: `p@ss "w"ord \with# stuff`,
 	}
 	if err := Apply(path, "x", r, nil); err != nil {
@@ -117,7 +117,7 @@ func TestApplyWritesEnabledGlobalOptionsOnly(t *testing.T) {
 		{Key: "ssl-mode", Value: "DISABLED"},
 	}
 	r := config.Record{
-		Name: "x", Host: "h", Port: 1, User: "u",
+		Name: "x", User: "u",
 		GlobalOptions: map[string]bool{
 			"default-character-set": true,
 			"compress":              true,
@@ -144,7 +144,7 @@ func TestApplyWritesEnabledGlobalOptionsOnly(t *testing.T) {
 func TestApplyWritesEnabledCustomOptionsOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{
-		Name: "x", Host: "h", Port: 1, User: "u",
+		Name: "x", User: "u",
 		CustomOptions: []config.Option{
 			{Key: "connect-timeout", Value: "5", Enabled: true},
 			{Key: "reconnect", Enabled: false},
@@ -166,7 +166,7 @@ func TestApplyWritesEnabledCustomOptionsOnly(t *testing.T) {
 
 func TestCleanRemovesCredentials(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
-	r := config.Record{Name: "x", Host: "h", Port: 1, User: "u", Password: "secret-value"}
+	r := config.Record{Name: "x", User: "u", Password: "secret-value"}
 	if err := Apply(path, "x", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}

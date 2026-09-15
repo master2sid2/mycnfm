@@ -18,7 +18,6 @@ type recordCancelledMsg struct{}
 const (
 	fldName = iota
 	fldGroup
-	fldHost
 	fldPort
 	fldSocket
 	fldUser
@@ -34,7 +33,6 @@ const (
 var fieldLabels = [fldCount]string{
 	fldName:     "Name",
 	fldGroup:    "Group",
-	fldHost:     "Host",
 	fldPort:     "Port",
 	fldSocket:   "Socket",
 	fldUser:     "User",
@@ -98,7 +96,6 @@ func newRecordFormModel(r config.Record, isEdit bool, store *config.Store) recor
 	}
 	m.inputs[fldName] = mkInput("db-01", false)
 	m.inputs[fldGroup] = mkInput("optional, e.g. auth / mail", false)
-	m.inputs[fldHost] = mkInput("hostname or IP (optional)", false)
 	m.inputs[fldPort] = mkInput("blank = 3306, only set if different", false)
 	m.inputs[fldSocket] = mkInput("/var/run/mysqld/mysqld.sock", false)
 	m.inputs[fldUser] = mkInput("username", false)
@@ -114,7 +111,6 @@ func newRecordFormModel(r config.Record, isEdit bool, store *config.Store) recor
 
 	m.inputs[fldName].SetValue(r.Name)
 	m.inputs[fldGroup].SetValue(r.Group)
-	m.inputs[fldHost].SetValue(r.Host)
 	m.inputs[fldPort].SetValue(portStr)
 	m.inputs[fldSocket].SetValue(r.Socket)
 	m.inputs[fldUser].SetValue(r.User)
@@ -131,7 +127,7 @@ func newRecordFormModel(r config.Record, isEdit bool, store *config.Store) recor
 // visibleFields lists focus stops in order, skipping the global-options
 // section entirely when the catalog is empty.
 func (m *recordFormModel) visibleFields() []int {
-	fields := []int{fldName, fldGroup, fldHost, fldPort, fldSocket, fldUser, fldPassword, fldDatabase}
+	fields := []int{fldName, fldGroup, fldPort, fldSocket, fldUser, fldPassword, fldDatabase}
 	if len(m.globalDefs) > 0 {
 		fields = append(fields, fldGlobalOptions)
 	}
@@ -369,7 +365,6 @@ func (m recordFormModel) submit() (tea.Model, tea.Cmd) {
 	r := m.orig
 	r.Name = name
 	r.Group = strings.TrimSpace(m.inputs[fldGroup].Value())
-	r.Host = strings.TrimSpace(m.inputs[fldHost].Value())
 	r.Port = port
 	r.Socket = strings.TrimSpace(m.inputs[fldSocket].Value())
 	r.User = strings.TrimSpace(m.inputs[fldUser].Value())
@@ -433,7 +428,7 @@ func (m recordFormModel) View() string {
 
 	sb.WriteString("\n" + frmSectionStyle.Render("Connection") + "\n")
 	sb.WriteString(frmDimStyle.Render("  Leave everything but Name blank if you only need user+password.") + "\n")
-	for _, f := range []int{fldHost, fldPort, fldSocket, fldUser, fldPassword, fldDatabase} {
+	for _, f := range []int{fldPort, fldSocket, fldUser, fldPassword, fldDatabase} {
 		m.inputs[f].Width = inputW
 		sb.WriteString(m.renderField(f, inputW))
 	}

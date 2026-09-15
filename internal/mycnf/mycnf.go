@@ -51,9 +51,6 @@ func Apply(path string, label string, r config.Record, defs []config.OptionDef) 
 	sb.WriteString(managedHeader + "\n")
 	fmt.Fprintf(&sb, "# Active: %s  ·  applied %s\n\n", label, time.Now().Format("2006-01-02 15:04:05"))
 	sb.WriteString("[client]\n")
-	if r.Host != "" {
-		fmt.Fprintf(&sb, "host     = %s\n", r.Host)
-	}
 	if r.Port != 0 && r.Port != defaultPort {
 		fmt.Fprintf(&sb, "port     = %d\n", r.Port)
 	}
