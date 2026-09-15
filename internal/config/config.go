@@ -30,50 +30,65 @@ func NewFolder(parentID string) Folder {
 	}
 }
 
-// Option is an extra checkbox-style [client] entry, e.g.
-// {Key: "default-character-set", Value: "utf8mb3", Enabled: true}. A Value
-// of "" produces a bare flag line (just the key, no "= value").
+// OptionDef is a globally defined optional [client] setting that any host can
+// switch on or off. Defined once from the Options catalog (press O on the
+// list); a host only stores whether it's enabled, so adding, renaming or
+// deleting a definition affects what every host sees immediately — nothing
+// is baked into a host at creation time.
+type OptionDef struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"` // "" = bare flag (no "= value")
+}
+
+// defaultOptionDefs seeds a brand-new vault with the one knob most setups
+// care about — the client character set, defaulting to utf8mb3. It starts
+// unchecked on every host; nothing is written until a host enables it.
+func defaultOptionDefs() []OptionDef {
+	return []OptionDef{
+		{Key: "default-character-set", Value: "utf8mb3"},
+	}
+}
+
+// Option is a custom [client] entry that belongs to one host only — unlike a
+// catalog OptionDef, it's not shared or visible anywhere else.
 type Option struct {
 	Key     string `json:"key"`
 	Value   string `json:"value,omitempty"`
 	Enabled bool   `json:"enabled"`
 }
 
-// defaultOptions seeds every new record with the common knobs the user is
-// likely to want to flip without retyping — currently just the client
-// character set, defaulting to utf8mb3.
-func defaultOptions() []Option {
-	return []Option{
-		{Key: "default-character-set", Value: "utf8mb3", Enabled: true},
-	}
-}
-
 // Record holds everything needed to populate ~/.my.cnf for one database target.
 type Record struct {
-	ID        string    `json:"id"`
-	FolderID  string    `json:"folder_id,omitempty"` // "" = root level
-	Group     string    `json:"group,omitempty"`     // free-text display cluster, e.g. "auth", "mail"
-	Name      string    `json:"name"`
-	Host      string    `json:"host,omitempty"`
-	Port      int       `json:"port,omitempty"`
-	Socket    string    `json:"socket,omitempty"`
-	User      string    `json:"user"`
-	Password  string    `json:"password,omitempty"` // stored encrypted at rest
-	Database  string    `json:"database,omitempty"`
-	Options   []Option  `json:"options,omitempty"` // extra checkbox-style [client] entries
+	ID       string `json:"id"`
+	FolderID string `json:"folder_id,omitempty"` // "" = root level
+	Group    string `json:"group,omitempty"`     // free-text display cluster, e.g. "auth", "mail"
+	Name     string `json:"name"`
+	Host     string `json:"host,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	Socket   string `json:"socket,omitempty"`
+	User     string `json:"user"`
+	Password string `json:"password,omitempty"` // stored encrypted at rest
+	Database string `json:"database,omitempty"`
+
+	// GlobalOptions is this host's enabled/disabled state for each catalog
+	// OptionDef, keyed by OptionDef.Key. Absent = disabled.
+	GlobalOptions map[string]bool `json:"global_options,omitempty"`
+	// CustomOptions are extra [client] entries that exist only on this host.
+	CustomOptions []Option `json:"custom_options,omitempty"`
+
 	Tags      []string  `json:"tags,omitempty"`
 	Notes     string    `json:"notes,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// NewRecord returns a Record with generated ID, timestamps and default options.
+// NewRecord returns a Record with generated ID and timestamps. Every field
+// beyond Name/ID starts blank/disabled — including Port, so a host that only
+// needs user+password doesn't get an unwanted "port = 3306" written for it.
 func NewRecord() Record {
 	now := time.Now()
 	return Record{
 		ID:        uuid.New().String(),
-		Port:      3306,
-		Options:   defaultOptions(),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -84,17 +99,24 @@ func (r Record) Clone() Record {
 	cp := r
 	cp.Tags = make([]string, len(r.Tags))
 	copy(cp.Tags, r.Tags)
-	cp.Options = make([]Option, len(r.Options))
-	copy(cp.Options, r.Options)
+	cp.CustomOptions = make([]Option, len(r.CustomOptions))
+	copy(cp.CustomOptions, r.CustomOptions)
+	if r.GlobalOptions != nil {
+		cp.GlobalOptions = make(map[string]bool, len(r.GlobalOptions))
+		for k, v := range r.GlobalOptions {
+			cp.GlobalOptions[k] = v
+		}
+	}
 	return cp
 }
 
 // vault is the plaintext structure stored (encrypted) on disk.
 type vault struct {
-	Version  int      `json:"version"`
-	Folders  []Folder `json:"folders,omitempty"`
-	Records  []Record `json:"records"`
-	ActiveID string   `json:"active_id,omitempty"` // last record ID applied to ~/.my.cnf
+	Version    int         `json:"version"`
+	Folders    []Folder    `json:"folders,omitempty"`
+	Records    []Record    `json:"records"`
+	OptionDefs []OptionDef `json:"option_defs,omitempty"`
+	ActiveID   string      `json:"active_id,omitempty"` // last record ID applied to ~/.my.cnf
 }
 
 // Store is the in-memory config, backed by an encrypted file.
@@ -134,7 +156,7 @@ func Open(path string, masterPass []byte) (*Store, error) {
 		}
 		s.salt = salt
 		s.key = deriveKey(masterPass, salt)
-		s.vault = vault{Version: 1, Records: []Record{}}
+		s.vault = vault{Version: 1, Records: []Record{}, OptionDefs: defaultOptionDefs()}
 		return s, nil
 	}
 
@@ -422,6 +444,69 @@ func (s *Store) SetActiveID(id string) error {
 // ClearActiveID forgets the active profile (used after `clean`) and saves.
 func (s *Store) ClearActiveID() error {
 	s.vault.ActiveID = ""
+	return s.Save()
+}
+
+// ── Option catalog ────────────────────────────────────────────────────────────
+
+// OptionDefs returns the global option catalog, sorted by key.
+func (s *Store) OptionDefs() []OptionDef {
+	out := make([]OptionDef, len(s.vault.OptionDefs))
+	copy(out, s.vault.OptionDefs)
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
+// AddOptionDef appends a new catalog entry and saves.
+func (s *Store) AddOptionDef(d OptionDef) error {
+	for _, existing := range s.vault.OptionDefs {
+		if existing.Key == d.Key {
+			return fmt.Errorf("option %q already exists", d.Key)
+		}
+	}
+	s.vault.OptionDefs = append(s.vault.OptionDefs, d)
+	return s.Save()
+}
+
+// UpdateOptionDef replaces the catalog entry at oldKey with d — including a
+// key rename — migrating every record's enabled-state to the new key, and saves.
+func (s *Store) UpdateOptionDef(oldKey string, d OptionDef) error {
+	found := false
+	for i, existing := range s.vault.OptionDefs {
+		if existing.Key == oldKey {
+			s.vault.OptionDefs[i] = d
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("option %q not found", oldKey)
+	}
+	if oldKey != d.Key {
+		for i, r := range s.vault.Records {
+			enabled, ok := r.GlobalOptions[oldKey]
+			if !ok {
+				continue
+			}
+			delete(s.vault.Records[i].GlobalOptions, oldKey)
+			s.vault.Records[i].GlobalOptions[d.Key] = enabled
+		}
+	}
+	return s.Save()
+}
+
+// DeleteOptionDef removes a catalog entry and strips it from every record.
+func (s *Store) DeleteOptionDef(key string) error {
+	defs := s.vault.OptionDefs[:0]
+	for _, d := range s.vault.OptionDefs {
+		if d.Key != key {
+			defs = append(defs, d)
+		}
+	}
+	s.vault.OptionDefs = defs
+	for i := range s.vault.Records {
+		delete(s.vault.Records[i].GlobalOptions, key)
+	}
 	return s.Save()
 }
 

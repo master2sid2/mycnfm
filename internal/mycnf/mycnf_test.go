@@ -14,13 +14,13 @@ func TestApplyWritesClientSection(t *testing.T) {
 	r := config.Record{
 		Name:     "auth-01",
 		Host:     "10.0.0.5",
-		Port:     3306,
+		Port:     3307,
 		User:     "root",
 		Password: "s3cret",
 		Database: "appdb",
 	}
 
-	if err := Apply(path, "stage/auth-01", r); err != nil {
+	if err := Apply(path, "stage/auth-01", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -37,7 +37,7 @@ func TestApplyWritesClientSection(t *testing.T) {
 	for _, want := range []string{
 		"[client]",
 		"host     = 10.0.0.5",
-		"port     = 3306",
+		"port     = 3307",
 		"user     = root",
 		`password = "s3cret"`,
 		"database = appdb",
@@ -49,13 +49,55 @@ func TestApplyWritesClientSection(t *testing.T) {
 	}
 }
 
+func TestApplyOmitsBlankConnectionFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+	r := config.Record{Name: "just-creds", User: "root", Password: "s3cret"}
+
+	if err := Apply(path, "just-creds", r, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	for _, unwanted := range []string{"host", "port", "socket", "database"} {
+		if strings.Contains(content, unwanted) {
+			t.Errorf("expected no %q line when field is blank, got:\n%s", unwanted, content)
+		}
+	}
+	if !strings.Contains(content, "user     = root") || !strings.Contains(content, `password = "s3cret"`) {
+		t.Errorf("expected user/password lines, got:\n%s", content)
+	}
+}
+
+func TestApplyOmitsDefaultPortButKeepsCustomPort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+
+	def := config.Record{Name: "x", Host: "h", Port: 3306, User: "u"}
+	if err := Apply(path, "x", def, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "port") {
+		t.Errorf("default port 3306 should be omitted, got:\n%s", data)
+	}
+
+	custom := config.Record{Name: "x", Host: "h", Port: 3307, User: "u"}
+	if err := Apply(path, "x", custom, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	data, _ = os.ReadFile(path)
+	if !strings.Contains(string(data), "port     = 3307\n") {
+		t.Errorf("non-default port should be written, got:\n%s", data)
+	}
+}
+
 func TestApplyQuotesSpecialCharacterPasswords(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{
 		Name: "x", Host: "h", Port: 1, User: "u",
 		Password: `p@ss "w"ord \with# stuff`,
 	}
-	if err := Apply(path, "x", r); err != nil {
+	if err := Apply(path, "x", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -67,17 +109,22 @@ func TestApplyQuotesSpecialCharacterPasswords(t *testing.T) {
 	}
 }
 
-func TestApplyWritesEnabledOptionsOnly(t *testing.T) {
+func TestApplyWritesEnabledGlobalOptionsOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
+	defs := []config.OptionDef{
+		{Key: "default-character-set", Value: "utf8mb3"},
+		{Key: "compress"},
+		{Key: "ssl-mode", Value: "DISABLED"},
+	}
 	r := config.Record{
 		Name: "x", Host: "h", Port: 1, User: "u",
-		Options: []config.Option{
-			{Key: "default-character-set", Value: "utf8mb3", Enabled: true},
-			{Key: "compress", Enabled: true},
-			{Key: "ssl-mode", Value: "DISABLED", Enabled: false},
+		GlobalOptions: map[string]bool{
+			"default-character-set": true,
+			"compress":              true,
+			"ssl-mode":              false,
 		},
 	}
-	if err := Apply(path, "x", r); err != nil {
+	if err := Apply(path, "x", r, defs); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -94,10 +141,33 @@ func TestApplyWritesEnabledOptionsOnly(t *testing.T) {
 	}
 }
 
+func TestApplyWritesEnabledCustomOptionsOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+	r := config.Record{
+		Name: "x", Host: "h", Port: 1, User: "u",
+		CustomOptions: []config.Option{
+			{Key: "connect-timeout", Value: "5", Enabled: true},
+			{Key: "reconnect", Enabled: false},
+		},
+	}
+	if err := Apply(path, "x", r, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if !strings.Contains(content, "connect-timeout = 5\n") {
+		t.Errorf("missing enabled custom option, got:\n%s", content)
+	}
+	if strings.Contains(content, "reconnect") {
+		t.Errorf("disabled custom option should not be written, got:\n%s", content)
+	}
+}
+
 func TestCleanRemovesCredentials(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{Name: "x", Host: "h", Port: 1, User: "u", Password: "secret-value"}
-	if err := Apply(path, "x", r); err != nil {
+	if err := Apply(path, "x", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 

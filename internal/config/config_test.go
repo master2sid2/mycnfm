@@ -91,6 +91,85 @@ func TestDeleteFolderCascades(t *testing.T) {
 	}
 }
 
+func TestNewVaultSeedsCharsetOptionDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	s, err := Open(path, []byte("pw"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	defs := s.OptionDefs()
+	if len(defs) != 1 || defs[0].Key != "default-character-set" || defs[0].Value != "utf8mb3" {
+		t.Fatalf("expected seeded default-character-set=utf8mb3 catalog entry, got %+v", defs)
+	}
+
+	r := NewRecord()
+	r.Name = "x"
+	r.User = "u"
+	if r.GlobalOptions[defs[0].Key] {
+		t.Fatal("a new record must not have catalog options pre-enabled")
+	}
+}
+
+func TestOptionDefRenameMigratesRecordState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	s, _ := Open(path, []byte("pw"))
+
+	if err := s.AddOptionDef(OptionDef{Key: "compress"}); err != nil {
+		t.Fatalf("add option def: %v", err)
+	}
+
+	r := NewRecord()
+	r.Name = "x"
+	r.User = "u"
+	r.GlobalOptions = map[string]bool{"compress": true}
+	if err := s.Add(r); err != nil {
+		t.Fatalf("add record: %v", err)
+	}
+
+	if err := s.UpdateOptionDef("compress", OptionDef{Key: "compression"}); err != nil {
+		t.Fatalf("rename option def: %v", err)
+	}
+
+	got, _ := s.Get(r.ID)
+	if got.GlobalOptions["compress"] {
+		t.Error("old key should no longer be enabled after rename")
+	}
+	if !got.GlobalOptions["compression"] {
+		t.Error("enabled state should have migrated to the new key")
+	}
+}
+
+func TestDeleteOptionDefStripsRecordReferences(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	s, _ := Open(path, []byte("pw"))
+
+	if err := s.AddOptionDef(OptionDef{Key: "compress"}); err != nil {
+		t.Fatalf("add option def: %v", err)
+	}
+	r := NewRecord()
+	r.Name = "x"
+	r.User = "u"
+	r.GlobalOptions = map[string]bool{"compress": true}
+	if err := s.Add(r); err != nil {
+		t.Fatalf("add record: %v", err)
+	}
+
+	if err := s.DeleteOptionDef("compress"); err != nil {
+		t.Fatalf("delete option def: %v", err)
+	}
+
+	for _, d := range s.OptionDefs() {
+		if d.Key == "compress" {
+			t.Fatal("catalog entry should be gone")
+		}
+	}
+	got, _ := s.Get(r.ID)
+	if got.GlobalOptions["compress"] {
+		t.Error("record should no longer reference the deleted option")
+	}
+}
+
 func TestMoveFolderRejectsCycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.enc")
 	s, _ := Open(path, []byte("pw"))

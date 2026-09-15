@@ -23,6 +23,7 @@ const (
 	viewMove
 	viewConfirmDelete
 	viewConfirmClean
+	viewOptionCatalog
 )
 
 type modalKind int
@@ -36,9 +37,10 @@ type App struct {
 	store *config.Store
 	list  listModel
 
-	recordForm recordFormModel
-	folderForm folderFormModel
-	movePicker movePickerModel
+	recordForm    recordFormModel
+	folderForm    folderFormModel
+	movePicker    movePickerModel
+	optionCatalog optionCatalogModel
 
 	currentView view
 	activeModal modalKind
@@ -250,6 +252,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.folderForm.width = wsm.Width
 		a.movePicker.width = wsm.Width
 		a.movePicker.height = wsm.Height
+		a.optionCatalog.width = wsm.Width
+		a.optionCatalog.height = wsm.Height
 	}
 
 	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
@@ -322,6 +326,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case moveCancelledMsg:
 		a.currentView = viewList
 		return a, nil
+
+	case optionCatalogDoneMsg:
+		a.currentView = viewList
+		a.refreshList()
+		return a, nil
 	}
 
 	if a.activeModal != noModal {
@@ -360,6 +369,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key, ok := msg.(tea.KeyMsg); ok {
 			return a.updateConfirmClean(key)
 		}
+	case viewOptionCatalog:
+		newModel, cmd := a.optionCatalog.Update(msg)
+		if oc, ok := newModel.(optionCatalogModel); ok {
+			a.optionCatalog = oc
+		}
+		return a, cmd
 	}
 
 	return a, nil
@@ -484,6 +499,13 @@ func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.currentView = viewConfirmClean
 		return a, nil
 
+	case "O":
+		a.optionCatalog = newOptionCatalog(a.store)
+		a.optionCatalog.width = a.width
+		a.optionCatalog.height = a.height
+		a.currentView = viewOptionCatalog
+		return a, a.optionCatalog.Init()
+
 	case "v":
 		a.groupView = !a.groupView
 		a.refreshList()
@@ -591,7 +613,7 @@ func (a *App) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (a *App) applyRecord(r config.Record) {
 	label := mycnf.Label(a.store, r)
-	if err := mycnf.Apply(a.myCnfPath, label, r); err != nil {
+	if err := mycnf.Apply(a.myCnfPath, label, r, a.store.OptionDefs()); err != nil {
 		a.setErr("Apply failed: " + err.Error())
 		return
 	}
@@ -709,6 +731,8 @@ func (a *App) modalContent() string {
 		return confirmDeleteView(a.deleteTargetName, a.deleteIsFolder)
 	case viewConfirmClean:
 		return confirmCleanView(a.myCnfPath)
+	case viewOptionCatalog:
+		return a.optionCatalog.View()
 	}
 	switch a.activeModal {
 	case modalHelp:
@@ -802,6 +826,7 @@ func (a *App) helpBar() string {
 		"v", viewLabel,
 		"s", fmt.Sprintf("sort:%s%s", a.sortMode.label(), arrow),
 		"/", "search",
+		"O", "options",
 		"x", "clean",
 		"?", "help",
 	}
@@ -896,7 +921,17 @@ func (a *App) detailsView(width int) string {
 	if r.Database != "" {
 		rows = append(rows, [2]string{"Database", r.Database})
 	}
-	for _, o := range r.Options {
+	for _, def := range a.store.OptionDefs() {
+		if !r.GlobalOptions[def.Key] {
+			continue
+		}
+		v := def.Value
+		if v == "" {
+			v = "(flag)"
+		}
+		rows = append(rows, [2]string{def.Key, v})
+	}
+	for _, o := range r.CustomOptions {
 		if !o.Enabled || o.Key == "" {
 			continue
 		}
@@ -1002,6 +1037,7 @@ func helpModalView() string {
 	right.WriteString(frmSectionStyle.Render("Folders / cleanup") + "\n")
 	right.WriteString(sep + "\n")
 	right.WriteString(row("g", "new ENV / subfolder"))
+	right.WriteString(row("O", "options catalog"))
 	right.WriteString(row("x", "clean ~/.my.cnf"))
 
 	cols := lipgloss.JoinHorizontal(lipgloss.Top,
