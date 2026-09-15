@@ -896,6 +896,16 @@ func (a *App) detailsView(width int) string {
 	if r.Database != "" {
 		rows = append(rows, [2]string{"Database", r.Database})
 	}
+	for _, o := range r.Options {
+		if !o.Enabled || o.Key == "" {
+			continue
+		}
+		v := o.Value
+		if v == "" {
+			v = "(flag)"
+		}
+		rows = append(rows, [2]string{o.Key, v})
+	}
 
 	for _, row := range rows {
 		sb.WriteString(detailKeyStyle.Render(row[0]) + detailValStyle.Render(row[1]) + "\n")

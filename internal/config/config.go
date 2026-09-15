@@ -30,6 +30,24 @@ func NewFolder(parentID string) Folder {
 	}
 }
 
+// Option is an extra checkbox-style [client] entry, e.g.
+// {Key: "default-character-set", Value: "utf8mb3", Enabled: true}. A Value
+// of "" produces a bare flag line (just the key, no "= value").
+type Option struct {
+	Key     string `json:"key"`
+	Value   string `json:"value,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
+// defaultOptions seeds every new record with the common knobs the user is
+// likely to want to flip without retyping — currently just the client
+// character set, defaulting to utf8mb3.
+func defaultOptions() []Option {
+	return []Option{
+		{Key: "default-character-set", Value: "utf8mb3", Enabled: true},
+	}
+}
+
 // Record holds everything needed to populate ~/.my.cnf for one database target.
 type Record struct {
 	ID        string    `json:"id"`
@@ -42,18 +60,20 @@ type Record struct {
 	User      string    `json:"user"`
 	Password  string    `json:"password,omitempty"` // stored encrypted at rest
 	Database  string    `json:"database,omitempty"`
+	Options   []Option  `json:"options,omitempty"` // extra checkbox-style [client] entries
 	Tags      []string  `json:"tags,omitempty"`
 	Notes     string    `json:"notes,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// NewRecord returns a Record with generated ID and timestamps.
+// NewRecord returns a Record with generated ID, timestamps and default options.
 func NewRecord() Record {
 	now := time.Now()
 	return Record{
 		ID:        uuid.New().String(),
 		Port:      3306,
+		Options:   defaultOptions(),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -64,6 +84,8 @@ func (r Record) Clone() Record {
 	cp := r
 	cp.Tags = make([]string, len(r.Tags))
 	copy(cp.Tags, r.Tags)
+	cp.Options = make([]Option, len(r.Options))
+	copy(cp.Options, r.Options)
 	return cp
 }
 

@@ -54,13 +54,23 @@ func Apply(path string, label string, r config.Record) error {
 		fmt.Fprintf(&sb, "socket   = %s\n", r.Socket)
 	}
 	if r.User != "" {
-		fmt.Fprintf(&sb, "user     = %s\n", r.User)
+		fmt.Fprintf(&sb, "user     = %s\n", quoteIfNeeded(r.User))
 	}
 	if r.Password != "" {
-		fmt.Fprintf(&sb, "password = %s\n", quoteIfNeeded(r.Password))
+		fmt.Fprintf(&sb, "password = %s\n", quotePassword(r.Password))
 	}
 	if r.Database != "" {
-		fmt.Fprintf(&sb, "database = %s\n", r.Database)
+		fmt.Fprintf(&sb, "database = %s\n", quoteIfNeeded(r.Database))
+	}
+	for _, opt := range r.Options {
+		if !opt.Enabled || opt.Key == "" {
+			continue
+		}
+		if opt.Value == "" {
+			fmt.Fprintf(&sb, "%s\n", opt.Key)
+		} else {
+			fmt.Fprintf(&sb, "%s = %s\n", opt.Key, quoteIfNeeded(opt.Value))
+		}
 	}
 
 	return writeAtomic(path, sb.String())
@@ -72,14 +82,26 @@ func Clean(path string) error {
 	return writeAtomic(path, content)
 }
 
+// escapeQuoted backslash-escapes backslashes and double quotes so the value
+// survives round-tripping through a double-quoted option-file string.
+func escapeQuoted(v string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v)
+}
+
 // quoteIfNeeded wraps a value in double quotes if it contains characters that
-// would otherwise break the option-file grammar (spaces, #, quotes).
+// would otherwise break the option-file grammar (spaces, #, quotes, backslashes).
 func quoteIfNeeded(v string) string {
-	if strings.ContainsAny(v, " \t#\"'") {
-		escaped := strings.ReplaceAll(v, `"`, `\"`)
-		return `"` + escaped + `"`
+	if strings.ContainsAny(v, " \t#\"'\\") {
+		return `"` + escapeQuoted(v) + `"`
 	}
 	return v
+}
+
+// quotePassword always wraps the password in double quotes — passwords
+// routinely contain characters (spaces, #, $, etc.) that mysql's option-file
+// parser would otherwise choke on or silently truncate.
+func quotePassword(v string) string {
+	return `"` + escapeQuoted(v) + `"`
 }
 
 func writeAtomic(path, content string) error {
