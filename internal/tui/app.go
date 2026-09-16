@@ -774,7 +774,7 @@ func (a *App) View() string {
 	if modal == "" {
 		return bg
 	}
-	return centerOverlay(bg, modal)
+	return centerOverlay(bg, modal, a.width, a.height)
 }
 
 func (a *App) modalContent() string {
@@ -1063,8 +1063,11 @@ func confirmCleanView(path string) string {
 
 func helpModalView() string {
 	const (
-		panelW = 56
-		colW   = 24
+		// colW must fit "  " + an 8-wide key column + the longest
+		// description ("toggle folder/group view", 24 chars) without
+		// lipgloss word-wrapping any row.
+		panelW = 76
+		colW   = 34
 		kw     = 8
 	)
 
