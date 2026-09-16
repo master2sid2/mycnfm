@@ -200,6 +200,39 @@ func (s *Store) Save() error {
 	return os.Rename(tmp, s.path)
 }
 
+// ExportJSON returns the vault's contents as indented, human-readable JSON.
+// The result is plaintext — every stored password is in the clear — so
+// callers must treat it with the same care as the master password itself.
+// Meant for one-off maintenance: changing the master password or handing a
+// config to a colleague to re-encrypt under their own password.
+func (s *Store) ExportJSON() ([]byte, error) {
+	return json.MarshalIndent(s.vault, "", "  ")
+}
+
+// ImportJSON builds a brand-new vault from previously exported JSON,
+// encrypted under masterPass with a freshly generated salt. It does not read
+// or touch any existing file at path — the caller must call Save to write
+// it, and is responsible for warning about overwriting an existing vault.
+func ImportJSON(path string, masterPass []byte, data []byte) (*Store, error) {
+	var v vault
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, fmt.Errorf("parse json: %w", err)
+	}
+	if v.Version == 0 {
+		v.Version = 1
+	}
+	salt, err := generateSalt()
+	if err != nil {
+		return nil, err
+	}
+	return &Store{
+		path:  path,
+		salt:  salt,
+		key:   deriveKey(masterPass, salt),
+		vault: v,
+	}, nil
+}
+
 // ── Folders ───────────────────────────────────────────────────────────────────
 
 // FoldersInFolder returns direct child folders of parentID ("" = root), sorted by name.
