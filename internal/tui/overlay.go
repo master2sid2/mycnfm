@@ -56,20 +56,17 @@ func renderModal(icon, title string, panelW int, content string) string {
 
 // centerOverlay composites fg on top of bg, centering fg both horizontally
 // and vertically. ANSI escape sequences in bg lines are preserved correctly.
-func centerOverlay(bg, fg string) string {
+// bgW and bgH are the caller's authoritative terminal dimensions. They are
+// not re-derived from bg's own content: a single line that renders wider
+// than the terminal (e.g. a footer that doesn't fit and gets clipped by the
+// real terminal) would otherwise inflate the measured width and badly
+// mis-center the overlay relative to what's actually on screen.
+func centerOverlay(bg, fg string, bgW, bgH int) string {
 	bgLines := strings.Split(bg, "\n")
 	fgLines := strings.Split(fg, "\n")
-
-	bgH := len(bgLines)
 	fgH := len(fgLines)
 
 	if bgH < fgH {
-		bgW := 0
-		for _, l := range bgLines {
-			if w := ansiWidth(l); w > bgW {
-				bgW = w
-			}
-		}
 		return lipgloss.Place(bgW, bgH, lipgloss.Center, lipgloss.Center, fg)
 	}
 
@@ -77,13 +74,6 @@ func centerOverlay(bg, fg string) string {
 	for _, l := range fgLines {
 		if w := ansiWidth(l); w > fgW {
 			fgW = w
-		}
-	}
-
-	bgW := 0
-	for _, l := range bgLines {
-		if w := ansiWidth(l); w > bgW {
-			bgW = w
 		}
 	}
 
