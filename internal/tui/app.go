@@ -822,7 +822,9 @@ func (a *App) listView() string {
 	default:
 		slotS = hdrVerStyle.Render("○  no active profile")
 	}
-	rightS := lipgloss.JoinHorizontal(lipgloss.Top, slotS, hdrVerStyle.Render("  v"+version.Version))
+	// version.Version already carries a "v" prefix when built from a tag
+	// (git describe --tags); don't add a second one.
+	rightS := lipgloss.JoinHorizontal(lipgloss.Top, slotS, hdrVerStyle.Render("  "+version.Version))
 
 	leftSide := lipgloss.JoinHorizontal(lipgloss.Top, appS, breadS)
 	gapW := max(0, a.width-lipgloss.Width(leftSide)-lipgloss.Width(rightS))
