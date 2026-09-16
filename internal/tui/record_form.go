@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -78,12 +80,12 @@ func newRecordFormModel(r config.Record, isEdit bool, store *config.Store) recor
 		return t
 	}
 
-	customOptions := make([]config.Option, len(r.CustomOptions))
-	copy(customOptions, r.CustomOptions)
+	customOptions := slices.Clone(r.CustomOptions)
 
-	globalEnabled := make(map[string]bool, len(r.GlobalOptions))
-	for k, v := range r.GlobalOptions {
-		globalEnabled[k] = v
+	// Must stay non-nil: toggling a checkbox writes into this map directly.
+	globalEnabled := maps.Clone(r.GlobalOptions)
+	if globalEnabled == nil {
+		globalEnabled = make(map[string]bool)
 	}
 
 	m := recordFormModel{
@@ -350,7 +352,7 @@ func (m recordFormModel) submit() (tea.Model, tea.Cmd) {
 
 	var tags []string
 	seen := make(map[string]struct{})
-	for _, t := range strings.Split(m.inputs[fldTags].Value(), ",") {
+	for t := range strings.SplitSeq(m.inputs[fldTags].Value(), ",") {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue

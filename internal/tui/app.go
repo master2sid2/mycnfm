@@ -1117,13 +1117,6 @@ func helpModalView() string {
 	return renderModal("?", "Keyboard Shortcuts", panelW, sb.String())
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // Run is the main event loop for the TUI.
 func Run(ctx context.Context, store *config.Store) error {
 	path, err := mycnf.DefaultPath()
