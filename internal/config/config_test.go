@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -166,6 +167,105 @@ func TestDeleteOptionDefStripsRecordReferences(t *testing.T) {
 	got, _ := s.Get(r.ID)
 	if got.GlobalOptions["compress"] {
 		t.Error("record should no longer reference the deleted option")
+	}
+}
+
+func TestExportImportRoundTripsWithNewPassword(t *testing.T) {
+	origPath := filepath.Join(t.TempDir(), "vault.enc")
+	oldPass := []byte("old password")
+	s, err := Open(origPath, oldPass)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	env := NewFolder("")
+	env.Name = "stage"
+	_ = s.AddFolder(env)
+
+	r := NewRecord()
+	r.FolderID = env.ID
+	r.Name = "auth-01"
+	r.User = "root"
+	r.Password = "s3cret"
+	if err := s.Add(r); err != nil {
+		t.Fatalf("add record: %v", err)
+	}
+	_ = s.AddOptionDef(OptionDef{Key: "compress"})
+
+	data, err := s.ExportJSON()
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if !strings.Contains(string(data), "s3cret") {
+		t.Fatal("expected exported JSON to contain the plaintext password")
+	}
+
+	newPath := filepath.Join(t.TempDir(), "vault2.enc")
+	newPass := []byte("brand new password")
+	imported, err := ImportJSON(newPath, newPass, data)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if err := imported.Save(); err != nil {
+		t.Fatalf("save imported vault: %v", err)
+	}
+
+	if _, err := Open(newPath, oldPass); err == nil {
+		t.Fatal("expected the old password to no longer work on the imported vault")
+	}
+
+	reopened, err := Open(newPath, newPass)
+	if err != nil {
+		t.Fatalf("reopen with new password: %v", err)
+	}
+	recs := reopened.RecordsInFolder(env.ID)
+	if len(recs) != 1 || recs[0].Name != "auth-01" || recs[0].Password != "s3cret" {
+		t.Fatalf("unexpected records after import: %+v", recs)
+	}
+	defs := reopened.OptionDefs()
+	found := false
+	for _, d := range defs {
+		if d.Key == "compress" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("option catalog was not preserved across export/import")
+	}
+}
+
+func TestRekeyChangesPasswordInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	oldPass := []byte("old password")
+	s, err := Open(path, oldPass)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	r := NewRecord()
+	r.Name = "auth-01"
+	r.User = "root"
+	r.Password = "s3cret"
+	if err := s.Add(r); err != nil {
+		t.Fatalf("add record: %v", err)
+	}
+
+	newPass := []byte("brand new password")
+	if err := s.Rekey(newPass); err != nil {
+		t.Fatalf("rekey: %v", err)
+	}
+
+	if _, err := Open(path, oldPass); err == nil {
+		t.Fatal("expected the old password to no longer work after rekey")
+	}
+
+	reopened, err := Open(path, newPass)
+	if err != nil {
+		t.Fatalf("reopen with new password: %v", err)
+	}
+	recs := reopened.RecordsUnder("")
+	if got := len(recs); got != 1 {
+		t.Fatalf("expected 1 record to survive rekey, got %d", got)
 	}
 }
 
