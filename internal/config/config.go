@@ -1,11 +1,13 @@
 package config
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,7 +69,7 @@ type Record struct {
 	FolderID string `json:"folder_id,omitempty"` // "" = root level
 	Group    string `json:"group,omitempty"`     // free-text display cluster, e.g. "auth", "mail"
 	Name     string `json:"name"`
-	Port     int    `json:"port,omitempty"`
+	Port     int    `json:"port,omitzero"`
 	Socket   string `json:"socket,omitempty"`
 	User     string `json:"user"`
 	Password string `json:"password,omitempty"` // stored encrypted at rest
@@ -100,16 +102,9 @@ func NewRecord() Record {
 // Clone returns a deep copy of the record.
 func (r Record) Clone() Record {
 	cp := r
-	cp.Tags = make([]string, len(r.Tags))
-	copy(cp.Tags, r.Tags)
-	cp.CustomOptions = make([]Option, len(r.CustomOptions))
-	copy(cp.CustomOptions, r.CustomOptions)
-	if r.GlobalOptions != nil {
-		cp.GlobalOptions = make(map[string]bool, len(r.GlobalOptions))
-		for k, v := range r.GlobalOptions {
-			cp.GlobalOptions[k] = v
-		}
-	}
+	cp.Tags = slices.Clone(r.Tags)
+	cp.CustomOptions = slices.Clone(r.CustomOptions)
+	cp.GlobalOptions = maps.Clone(r.GlobalOptions)
 	return cp
 }
 
@@ -256,7 +251,7 @@ func (s *Store) FoldersInFolder(parentID string) []Folder {
 			out = append(out, f)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	slices.SortFunc(out, func(a, b Folder) int { return cmp.Compare(a.Name, b.Name) })
 	return out
 }
 
@@ -285,9 +280,7 @@ func (s *Store) FolderPath(id string) []Folder {
 		rev = append(rev, f)
 		cur = f.ParentID
 	}
-	for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
-		rev[i], rev[j] = rev[j], rev[i]
-	}
+	slices.Reverse(rev)
 	return rev
 }
 
@@ -500,9 +493,8 @@ func (s *Store) ClearActiveID() error {
 
 // OptionDefs returns the global option catalog, sorted by key.
 func (s *Store) OptionDefs() []OptionDef {
-	out := make([]OptionDef, len(s.vault.OptionDefs))
-	copy(out, s.vault.OptionDefs)
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	out := slices.Clone(s.vault.OptionDefs)
+	slices.SortFunc(out, func(a, b OptionDef) int { return cmp.Compare(a.Key, b.Key) })
 	return out
 }
 
@@ -570,10 +562,5 @@ func (s *Store) AllTagNames() []string {
 			seen[t] = struct{}{}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for t := range seen {
-		out = append(out, t)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }

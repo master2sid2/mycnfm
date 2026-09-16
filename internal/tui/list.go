@@ -1,10 +1,11 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"hash/fnv"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -42,24 +43,24 @@ func (s sortMode) label(contextLabel string) string {
 // sortRecords sorts recs in place. contextKey supplies the comparison value
 // for sortByContext and is unused for the other modes (nil is fine then).
 func sortRecords(recs []config.Record, mode sortMode, desc bool, contextKey func(config.Record) string) {
-	sort.SliceStable(recs, func(i, j int) bool {
-		var less bool
+	slices.SortStableFunc(recs, func(a, b config.Record) int {
+		var c int
 		switch mode {
 		case sortByContext:
-			less = strings.ToLower(contextKey(recs[i])) < strings.ToLower(contextKey(recs[j]))
+			c = cmp.Compare(strings.ToLower(contextKey(a)), strings.ToLower(contextKey(b)))
 		case sortByUpdated:
-			less = recs[i].UpdatedAt.Before(recs[j].UpdatedAt)
+			c = a.UpdatedAt.Compare(b.UpdatedAt)
 		default:
-			less = strings.ToLower(recs[i].Name) < strings.ToLower(recs[j].Name)
+			c = cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		}
 		if desc {
-			return !less
+			return -c
 		}
-		return less
+		return c
 	})
 }
 
-func sortStrings(ss []string) { sort.Strings(ss) }
+func sortStrings(ss []string) { slices.Sort(ss) }
 
 // defaultDisplayPort mirrors mycnf's own default-port constant so the list
 // doesn't clutter every row with ":3306" — it's implied when omitted.
