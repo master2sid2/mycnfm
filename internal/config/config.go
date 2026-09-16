@@ -233,6 +233,19 @@ func ImportJSON(path string, masterPass []byte, data []byte) (*Store, error) {
 	}, nil
 }
 
+// Rekey re-encrypts the vault under a new master password — a fresh salt is
+// generated and the file is rewritten in place. The caller must have already
+// unlocked the store with the current password via Open.
+func (s *Store) Rekey(newMasterPass []byte) error {
+	salt, err := generateSalt()
+	if err != nil {
+		return err
+	}
+	s.salt = salt
+	s.key = deriveKey(newMasterPass, salt)
+	return s.Save()
+}
+
 // ── Folders ───────────────────────────────────────────────────────────────────
 
 // FoldersInFolder returns direct child folders of parentID ("" = root), sorted by name.

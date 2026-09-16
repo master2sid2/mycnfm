@@ -234,6 +234,41 @@ func TestExportImportRoundTripsWithNewPassword(t *testing.T) {
 	}
 }
 
+func TestRekeyChangesPasswordInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	oldPass := []byte("old password")
+	s, err := Open(path, oldPass)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	r := NewRecord()
+	r.Name = "auth-01"
+	r.User = "root"
+	r.Password = "s3cret"
+	if err := s.Add(r); err != nil {
+		t.Fatalf("add record: %v", err)
+	}
+
+	newPass := []byte("brand new password")
+	if err := s.Rekey(newPass); err != nil {
+		t.Fatalf("rekey: %v", err)
+	}
+
+	if _, err := Open(path, oldPass); err == nil {
+		t.Fatal("expected the old password to no longer work after rekey")
+	}
+
+	reopened, err := Open(path, newPass)
+	if err != nil {
+		t.Fatalf("reopen with new password: %v", err)
+	}
+	recs := reopened.RecordsUnder("")
+	if got := len(recs); got != 1 {
+		t.Fatalf("expected 1 record to survive rekey, got %d", got)
+	}
+}
+
 func TestMoveFolderRejectsCycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.enc")
 	s, _ := Open(path, []byte("pw"))

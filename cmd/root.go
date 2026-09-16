@@ -25,6 +25,8 @@ func Execute(ctx context.Context) error {
 			return runExport(os.Args[2:])
 		case "import":
 			return runImport(os.Args[2:])
+		case "passwd":
+			return runPasswd(os.Args[2:])
 		case "--version", "-v":
 			fmt.Println("mycnfm", version.Version)
 			return nil
@@ -74,14 +76,15 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
 	fmt.Fprintln(os.Stderr, "  mycnfm                     Launch the interactive TUI")
 	fmt.Fprintln(os.Stderr, "  mycnfm clean               Wipe ~/.my.cnf (no credentials left on disk)")
+	fmt.Fprintln(os.Stderr, "  mycnfm passwd [flags]      Change the vault's master password in place")
 	fmt.Fprintln(os.Stderr, "  mycnfm export [flags]      Decrypt the vault to plaintext JSON")
 	fmt.Fprintln(os.Stderr, "  mycnfm import [flags]      Encrypt a plaintext JSON export into a vault")
 	fmt.Fprintln(os.Stderr, "  mycnfm --version           Print the version")
 	fmt.Fprintln(os.Stderr, "  mycnfm --help              Show this message")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "export/import flags:")
+	fmt.Fprintln(os.Stderr, "passwd/export/import flags:")
 	fmt.Fprintln(os.Stderr, "  -vault <path>   vault file (default: ~/.config/mycnfm/vault.enc)")
-	fmt.Fprintln(os.Stderr, "  -json <path>    plaintext JSON file (default: ./mycnfm-export.json)")
+	fmt.Fprintln(os.Stderr, "  -json <path>    plaintext JSON file, export/import only (default: ./mycnfm-export.json)")
 }
 
 // readPassword prompts on stderr and reads a line without echoing it.
