@@ -20,15 +20,18 @@ type sortMode int
 
 const (
 	sortByName sortMode = iota
-	sortBySocket
+	// sortByContext sorts by "group" in folder-view or "env" in flattened
+	// (group/filtered) views — whichever secondary dimension the current
+	// view doesn't already show as its primary axis. See App.sortContextKey.
+	sortByContext
 	sortByUpdated
 	sortModeCount
 )
 
-func (s sortMode) label() string {
+func (s sortMode) label(contextLabel string) string {
 	switch s {
-	case sortBySocket:
-		return "socket"
+	case sortByContext:
+		return contextLabel
 	case sortByUpdated:
 		return "updated"
 	default:
@@ -36,12 +39,14 @@ func (s sortMode) label() string {
 	}
 }
 
-func sortRecords(recs []config.Record, mode sortMode, desc bool) {
+// sortRecords sorts recs in place. contextKey supplies the comparison value
+// for sortByContext and is unused for the other modes (nil is fine then).
+func sortRecords(recs []config.Record, mode sortMode, desc bool, contextKey func(config.Record) string) {
 	sort.SliceStable(recs, func(i, j int) bool {
 		var less bool
 		switch mode {
-		case sortBySocket:
-			less = strings.ToLower(recs[i].Socket) < strings.ToLower(recs[j].Socket)
+		case sortByContext:
+			less = strings.ToLower(contextKey(recs[i])) < strings.ToLower(contextKey(recs[j]))
 		case sortByUpdated:
 			less = recs[i].UpdatedAt.Before(recs[j].UpdatedAt)
 		default:

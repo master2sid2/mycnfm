@@ -155,14 +155,14 @@ func (a *App) buildFolderViewEntries() []listEntry {
 
 	ungrouped, grouped, groupNames := clusterByGroup(records)
 
-	sortRecords(ungrouped, a.sortMode, a.sortDesc)
+	sortRecords(ungrouped, a.sortMode, a.sortDesc, sortKeyGroup)
 	for _, r := range ungrouped {
 		entries = append(entries, a.recordEntry(r, ""))
 	}
 
 	for _, gname := range groupNames {
 		grp := grouped[gname]
-		sortRecords(grp, a.sortMode, a.sortDesc)
+		sortRecords(grp, a.sortMode, a.sortDesc, sortKeyGroup)
 		entries = append(entries, listEntry{kind: entryHeader, header: gname, count: len(grp)})
 		for _, r := range grp {
 			entries = append(entries, a.recordEntry(r, ""))
@@ -174,11 +174,12 @@ func (a *App) buildFolderViewEntries() []listEntry {
 func (a *App) buildGroupViewEntries() []listEntry {
 	records := a.store.RecordsUnder(a.currentFolderID())
 	ungrouped, grouped, groupNames := clusterByGroup(records)
+	byEnv := a.sortKeyEnv()
 
 	var entries []listEntry
 	for _, gname := range groupNames {
 		grp := grouped[gname]
-		sortRecords(grp, a.sortMode, a.sortDesc)
+		sortRecords(grp, a.sortMode, a.sortDesc, byEnv)
 		entries = append(entries, listEntry{kind: entryHeader, header: gname, count: len(grp)})
 		for _, r := range grp {
 			entries = append(entries, a.recordEntry(r, a.pathLabel(r.FolderID)))
@@ -186,7 +187,7 @@ func (a *App) buildGroupViewEntries() []listEntry {
 	}
 
 	if len(ungrouped) > 0 {
-		sortRecords(ungrouped, a.sortMode, a.sortDesc)
+		sortRecords(ungrouped, a.sortMode, a.sortDesc, byEnv)
 		entries = append(entries, listEntry{kind: entryHeader, header: "(ungrouped)", count: len(ungrouped)})
 		for _, r := range ungrouped {
 			entries = append(entries, a.recordEntry(r, a.pathLabel(r.FolderID)))
@@ -209,13 +210,40 @@ func (a *App) buildFilteredEntries() []listEntry {
 			matched = append(matched, r)
 		}
 	}
-	sortRecords(matched, a.sortMode, a.sortDesc)
+	sortRecords(matched, a.sortMode, a.sortDesc, a.sortKeyEnv())
 
 	entries := make([]listEntry, 0, len(matched))
 	for _, r := range matched {
 		entries = append(entries, a.recordEntry(r, a.pathLabel(r.FolderID)))
 	}
 	return entries
+}
+
+// sortKeyGroup is the sortByContext key in folder-view: the record's own
+// free-text Group label.
+func sortKeyGroup(r config.Record) string { return r.Group }
+
+// sortKeyEnv returns the sortByContext key for flattened (group/filtered)
+// views: the top-level ENV a record lives under, since that's the dimension
+// those views don't already show as headers.
+func (a *App) sortKeyEnv() func(config.Record) string {
+	return func(r config.Record) string {
+		path := a.store.FolderPath(r.FolderID)
+		if len(path) == 0 {
+			return ""
+		}
+		return path[0].Name
+	}
+}
+
+// sortContextLabel names what sortByContext currently sorts by, for the
+// footer hint — it depends on which dimension the active view doesn't
+// already show as its primary axis.
+func (a *App) sortContextLabel() string {
+	if a.groupView || a.filterQuery != "" {
+		return "env"
+	}
+	return "group"
 }
 
 func (a *App) recordEntry(r config.Record, path string) listEntry {
@@ -859,7 +887,7 @@ func (a *App) helpBar() string {
 		"m", "move",
 		"d", "delete",
 		"v", viewLabel,
-		"s", fmt.Sprintf("sort:%s%s", a.sortMode.label(), arrow),
+		"s", fmt.Sprintf("sort:%s%s", a.sortMode.label(a.sortContextLabel()), arrow),
 		"/", "search",
 		"O", "options",
 		"x", "clean",
