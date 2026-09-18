@@ -114,7 +114,8 @@ type vault struct {
 	Folders    []Folder    `json:"folders,omitempty"`
 	Records    []Record    `json:"records"`
 	OptionDefs []OptionDef `json:"option_defs,omitempty"`
-	ActiveID   string      `json:"active_id,omitempty"` // last record ID applied to ~/.my.cnf
+	ActiveID   string      `json:"active_id,omitempty"`   // last record ID applied to ~/.my.cnf
+	ActiveHash string      `json:"active_hash,omitempty"` // sha256 of the exact content last written, to detect drift
 }
 
 // Store is the in-memory config, backed by an encrypted file.
@@ -325,7 +326,7 @@ func (s *Store) deleteFolderTree(id string) {
 		if r.FolderID != id {
 			kept = append(kept, r)
 		} else if s.vault.ActiveID == r.ID {
-			s.vault.ActiveID = ""
+			s.clearActiveLocked()
 		}
 	}
 	s.vault.Records = kept
@@ -455,7 +456,7 @@ func (s *Store) Delete(id string) error {
 	}
 	s.vault.Records = records
 	if s.vault.ActiveID == id {
-		s.vault.ActiveID = ""
+		s.clearActiveLocked()
 	}
 	return s.Save()
 }
@@ -477,16 +478,30 @@ func (s *Store) MoveRecord(id, targetFolderID string) error {
 // ActiveID returns the ID of the record currently applied to ~/.my.cnf ("" = none).
 func (s *Store) ActiveID() string { return s.vault.ActiveID }
 
-// SetActiveID records which profile was last written to ~/.my.cnf and saves.
-func (s *Store) SetActiveID(id string) error {
+// ActiveHash returns the sha256 (hex) of the exact content last written for
+// ActiveID, used to detect whether ~/.my.cnf has since been changed or
+// deleted outside mycnfm.
+func (s *Store) ActiveHash() string { return s.vault.ActiveHash }
+
+// SetActive records which record was last written to ~/.my.cnf, along with a
+// hash of the exact content written, and saves.
+func (s *Store) SetActive(id, hash string) error {
 	s.vault.ActiveID = id
+	s.vault.ActiveHash = hash
 	return s.Save()
 }
 
-// ClearActiveID forgets the active profile (used after `clean`) and saves.
-func (s *Store) ClearActiveID() error {
-	s.vault.ActiveID = ""
+// ClearActive forgets the active profile (used after `clean`) and saves.
+func (s *Store) ClearActive() error {
+	s.clearActiveLocked()
 	return s.Save()
+}
+
+// clearActiveLocked resets active-record state without saving; callers save
+// as part of a larger mutation (e.g. deleting the active record's folder).
+func (s *Store) clearActiveLocked() {
+	s.vault.ActiveID = ""
+	s.vault.ActiveHash = ""
 }
 
 // ── Option catalog ────────────────────────────────────────────────────────────

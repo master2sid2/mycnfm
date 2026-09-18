@@ -20,7 +20,7 @@ import (
 // profile.
 const statusDisplayTime = 4 * time.Second
 
-// tickMsg drives the header's status-expiry check once a second.
+// tickMsg drives the header's status-expiry and drift checks once a second.
 type tickMsg time.Time
 
 func tickCmd() tea.Cmd {
@@ -78,6 +78,11 @@ type App struct {
 
 	myCnfPath string
 
+	// Drift: whether ~/.my.cnf still matches what was last applied.
+	// Refreshed at startup, after apply/clean, and on every status tick.
+	driftMissing bool // active record set, but the file doesn't exist
+	driftChanged bool // active record set, file exists but hash doesn't match
+
 	width          int
 	height         int
 	statusMsg      string
@@ -103,6 +108,7 @@ func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bo
 	if statusMsg != "" {
 		a.statusExpireAt = time.Now().Add(statusDisplayTime)
 	}
+	a.checkDrift()
 	a.list = newListModel()
 	a.refreshList()
 	return a
@@ -247,11 +253,13 @@ func (a *App) sortContextLabel() string {
 }
 
 func (a *App) recordEntry(r config.Record, path string) listEntry {
+	isActive := r.ID == a.store.ActiveID()
 	return listEntry{
-		kind:     entryRecord,
-		record:   r,
-		path:     path,
-		isActive: r.ID == a.store.ActiveID(),
+		kind:      entryRecord,
+		record:    r,
+		path:      path,
+		isActive:  isActive,
+		driftWarn: isActive && (a.driftMissing || a.driftChanged),
 	}
 }
 
@@ -310,6 +318,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusMsg = ""
 			a.statusExpireAt = time.Time{}
 		}
+		a.checkDrift()
 		return a, tickCmd()
 	}
 
@@ -671,15 +680,17 @@ func (a *App) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (a *App) applyRecord(r config.Record) {
 	label := mycnf.Label(a.store, r)
-	if err := mycnf.Apply(a.myCnfPath, label, r, a.store.OptionDefs()); err != nil {
+	hash, err := mycnf.Apply(a.myCnfPath, label, r, a.store.OptionDefs())
+	if err != nil {
 		a.setErr("Apply failed: " + err.Error())
 		return
 	}
-	if err := a.store.SetActiveID(r.ID); err != nil {
+	if err := a.store.SetActive(r.ID, hash); err != nil {
 		a.setErr("Applied but failed to save state: " + err.Error())
 		return
 	}
 	a.setOK("Applied: " + label)
+	a.checkDrift()
 	a.refreshList()
 }
 
@@ -688,12 +699,37 @@ func (a *App) cleanMyCnf() {
 		a.setErr("Clean failed: " + err.Error())
 		return
 	}
-	if err := a.store.ClearActiveID(); err != nil {
+	if err := a.store.ClearActive(); err != nil {
 		a.setErr("Cleaned but failed to save state: " + err.Error())
 		return
 	}
 	a.setOK("~/.my.cnf cleaned — no credentials stored")
+	a.checkDrift()
 	a.refreshList()
+}
+
+// checkDrift compares ~/.my.cnf's current contents against the hash
+// recorded for the active record, so the header can flag when the file was
+// changed or removed outside mycnfm (including via `mycnfm clean` from the
+// CLI, which intentionally doesn't touch the vault).
+func (a *App) checkDrift() {
+	a.driftMissing = false
+	a.driftChanged = false
+	id := a.store.ActiveID()
+	if id == "" {
+		return
+	}
+	current, ok, err := mycnf.CurrentHash(a.myCnfPath)
+	if err != nil {
+		return // transient read error — don't flag drift on our own account
+	}
+	if !ok {
+		a.driftMissing = true
+		return
+	}
+	if current != a.store.ActiveHash() {
+		a.driftChanged = true
+	}
 }
 
 // ── Layout / palette ──────────────────────────────────────────────────────────
@@ -741,6 +777,11 @@ var (
 			Foreground(clrSuccess).
 			Padding(0, 2)
 
+	hdrWarnStyle = lipgloss.NewStyle().
+			Background(clrHdrBg).
+			Foreground(lipgloss.Color("214")).
+			Padding(0, 2)
+
 	hdrGapStyle = lipgloss.NewStyle().Background(clrHdrBg)
 
 	hdrBreadStyle = lipgloss.NewStyle().Background(clrHdrBg).Foreground(clrDim)
@@ -763,6 +804,7 @@ var (
 	detailValStyle     = lipgloss.NewStyle().Foreground(clrText)
 	detailDimStyle     = lipgloss.NewStyle().Foreground(clrDim)
 	detailActiveStyle  = lipgloss.NewStyle().Foreground(clrSuccess).Bold(true)
+	detailWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	emptyHintStyle     = lipgloss.NewStyle().Foreground(clrDim).Italic(true).Padding(2, 2)
 )
 
@@ -815,7 +857,15 @@ func (a *App) listView() string {
 		slotS = hdrOkStyle.Render("✓  " + a.statusMsg)
 	case a.store.ActiveID() != "":
 		if r, ok := a.store.Get(a.store.ActiveID()); ok {
-			slotS = hdrActiveStyle.Render("●  " + mycnf.Label(a.store, r))
+			label := mycnf.Label(a.store, r)
+			switch {
+			case a.driftMissing:
+				slotS = hdrWarnStyle.Render("⚠  " + label + " — file missing")
+			case a.driftChanged:
+				slotS = hdrWarnStyle.Render("⚠  " + label + " — file changed")
+			default:
+				slotS = hdrActiveStyle.Render("●  " + label)
+			}
 		} else {
 			slotS = hdrVerStyle.Render("○  no active profile")
 		}
@@ -954,7 +1004,14 @@ func (a *App) detailsView(width int) string {
 	var sb strings.Builder
 	title := r.Name
 	if r.ID == a.store.ActiveID() {
-		title += "  " + detailActiveStyle.Render("● ACTIVE")
+		switch {
+		case a.driftMissing:
+			title += "  " + detailWarnStyle.Render("⚠ ACTIVE (file missing)")
+		case a.driftChanged:
+			title += "  " + detailWarnStyle.Render("⚠ ACTIVE (file changed)")
+		default:
+			title += "  " + detailActiveStyle.Render("● ACTIVE")
+		}
 	}
 	sb.WriteString(detailSectionStyle.Render(title) + "\n\n")
 

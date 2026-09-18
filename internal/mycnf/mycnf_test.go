@@ -20,7 +20,7 @@ func TestApplyWritesClientSection(t *testing.T) {
 		Database: "appdb",
 	}
 
-	if err := Apply(path, "stage/auth-01", r, nil); err != nil {
+	if _, err := Apply(path, "stage/auth-01", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -53,7 +53,7 @@ func TestApplyOmitsBlankConnectionFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{Name: "just-creds", User: "root", Password: "s3cret"}
 
-	if err := Apply(path, "just-creds", r, nil); err != nil {
+	if _, err := Apply(path, "just-creds", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestApplyOmitsDefaultPortButKeepsCustomPort(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 
 	def := config.Record{Name: "x", Port: 3306, User: "u"}
-	if err := Apply(path, "x", def, nil); err != nil {
+	if _, err := Apply(path, "x", def, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	data, _ := os.ReadFile(path)
@@ -82,7 +82,7 @@ func TestApplyOmitsDefaultPortButKeepsCustomPort(t *testing.T) {
 	}
 
 	custom := config.Record{Name: "x", Port: 3307, User: "u"}
-	if err := Apply(path, "x", custom, nil); err != nil {
+	if _, err := Apply(path, "x", custom, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	data, _ = os.ReadFile(path)
@@ -97,7 +97,7 @@ func TestApplyQuotesSpecialCharacterPasswords(t *testing.T) {
 		Name: "x", User: "u",
 		Password: `p@ss "w"ord \with# stuff`,
 	}
-	if err := Apply(path, "x", r, nil); err != nil {
+	if _, err := Apply(path, "x", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -124,7 +124,7 @@ func TestApplyWritesEnabledGlobalOptionsOnly(t *testing.T) {
 			"ssl-mode":              false,
 		},
 	}
-	if err := Apply(path, "x", r, defs); err != nil {
+	if _, err := Apply(path, "x", r, defs); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestApplyWritesEnabledCustomOptionsOnly(t *testing.T) {
 			{Key: "reconnect", Enabled: false},
 		},
 	}
-	if err := Apply(path, "x", r, nil); err != nil {
+	if _, err := Apply(path, "x", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -167,7 +167,7 @@ func TestApplyWritesEnabledCustomOptionsOnly(t *testing.T) {
 func TestCleanRemovesCredentials(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{Name: "x", User: "u", Password: "secret-value"}
-	if err := Apply(path, "x", r, nil); err != nil {
+	if _, err := Apply(path, "x", r, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -181,6 +181,55 @@ func TestCleanRemovesCredentials(t *testing.T) {
 	}
 	if strings.Contains(string(data), "[client]") {
 		t.Fatal("clean should not leave a [client] section behind")
+	}
+}
+
+func TestApplyHashMatchesCurrentHashUntilFileChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+	r := config.Record{Name: "x", User: "u", Password: "s3cret"}
+
+	hash, err := Apply(path, "x", r, nil)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if hash == "" {
+		t.Fatal("expected a non-empty hash")
+	}
+
+	current, ok, err := CurrentHash(path)
+	if err != nil {
+		t.Fatalf("current hash: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected file to exist")
+	}
+	if current != hash {
+		t.Fatalf("hash right after apply should match: got %q want %q", current, hash)
+	}
+
+	if err := os.WriteFile(path, []byte("tampered\n"), 0o600); err != nil {
+		t.Fatalf("tamper: %v", err)
+	}
+	current, ok, err = CurrentHash(path)
+	if err != nil {
+		t.Fatalf("current hash: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected file to still exist")
+	}
+	if current == hash {
+		t.Fatal("expected hash to change after the file was edited externally")
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	_, ok, err = CurrentHash(path)
+	if err != nil {
+		t.Fatalf("current hash after removal: %v", err)
+	}
+	if ok {
+		t.Fatal("expected ok=false for a missing file")
 	}
 }
 

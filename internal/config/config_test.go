@@ -32,7 +32,7 @@ func TestOpenSaveRoundTrip(t *testing.T) {
 	if err := s.Add(r); err != nil {
 		t.Fatalf("add record: %v", err)
 	}
-	if err := s.SetActiveID(r.ID); err != nil {
+	if err := s.SetActive(r.ID, "somehash"); err != nil {
 		t.Fatalf("set active: %v", err)
 	}
 
@@ -47,6 +47,9 @@ func TestOpenSaveRoundTrip(t *testing.T) {
 	}
 	if s2.ActiveID() != r.ID {
 		t.Fatalf("active id lost across reload: got %q want %q", s2.ActiveID(), r.ID)
+	}
+	if s2.ActiveHash() != "somehash" {
+		t.Fatalf("active hash lost across reload: got %q", s2.ActiveHash())
 	}
 
 	if _, err := Open(path, []byte("wrong password")); err == nil {
@@ -74,7 +77,7 @@ func TestDeleteFolderCascades(t *testing.T) {
 	r.Name = "leaf"
 	r.User = "u"
 	_ = s.Add(r)
-	_ = s.SetActiveID(r.ID)
+	_ = s.SetActive(r.ID, "somehash")
 
 	if err := s.DeleteFolder(root.ID); err != nil {
 		t.Fatalf("delete folder: %v", err)
@@ -88,6 +91,9 @@ func TestDeleteFolderCascades(t *testing.T) {
 	}
 	if s.ActiveID() != "" {
 		t.Fatal("active id should be cleared when its record is deleted")
+	}
+	if s.ActiveHash() != "" {
+		t.Fatal("active hash should be cleared along with the active id")
 	}
 }
 

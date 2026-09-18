@@ -129,13 +129,14 @@ const (
 // listEntry is one row in the main list — a folder, a record, or a
 // non-selectable group-header divider.
 type listEntry struct {
-	kind     entryKind
-	folder   config.Folder
-	record   config.Record
-	header   string // group label, when kind == entryHeader
-	count    int    // records under this header
-	path     string // breadcrumb shown next to a record in flattened views
-	isActive bool   // true if this record is currently applied to ~/.my.cnf
+	kind      entryKind
+	folder    config.Folder
+	record    config.Record
+	header    string // group label, when kind == entryHeader
+	count     int    // records under this header
+	path      string // breadcrumb shown next to a record in flattened views
+	isActive  bool   // true if this record is currently applied to ~/.my.cnf
+	driftWarn bool   // true if isActive but ~/.my.cnf no longer matches what was applied
 }
 
 func (e listEntry) FilterValue() string { return "" } // filtering is handled by the App, not bubbles/list
@@ -243,7 +244,10 @@ func (d entryDelegate) renderRecord(w io.Writer, e listEntry, width int, selecte
 	}
 
 	activeBadge := ""
-	if e.isActive {
+	switch {
+	case e.driftWarn:
+		activeBadge = "  ⚠"
+	case e.isActive:
 		activeBadge = "  ●"
 	}
 
@@ -271,7 +275,10 @@ func (d entryDelegate) renderRecord(w io.Writer, e listEntry, width int, selecte
 	}
 
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	if e.isActive {
+	switch {
+	case e.driftWarn:
+		nameStyle = nameStyle.Foreground(lipgloss.Color("214")).Bold(true)
+	case e.isActive:
 		nameStyle = nameStyle.Foreground(clrSuccess).Bold(true)
 	}
 	line1 := lipgloss.NewStyle().Width(width).PaddingLeft(2).
