@@ -3,6 +3,8 @@
 package mycnf
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,8 +47,10 @@ func Label(store *config.Store, r config.Record) string {
 // atomically with 0600 permissions. defs is the current global option
 // catalog — only entries r has switched on are written, using the catalog's
 // current key/value (renaming or editing a definition takes effect on the
-// next apply without touching the record).
-func Apply(path string, label string, r config.Record, defs []config.OptionDef) error {
+// next apply without touching the record). It returns the hex-encoded
+// sha256 of the exact bytes written, for later drift detection via
+// CurrentHash.
+func Apply(path string, label string, r config.Record, defs []config.OptionDef) (string, error) {
 	var sb strings.Builder
 	sb.WriteString(managedHeader + "\n")
 	fmt.Fprintf(&sb, "# Active: %s  ·  applied %s\n\n", label, time.Now().Format("2006-01-02 15:04:05"))
@@ -79,7 +83,11 @@ func Apply(path string, label string, r config.Record, defs []config.OptionDef) 
 		writeOption(&sb, opt.Key, opt.Value)
 	}
 
-	return writeAtomic(path, sb.String())
+	content := sb.String()
+	if err := writeAtomic(path, content); err != nil {
+		return "", err
+	}
+	return Hash(content), nil
 }
 
 func writeOption(sb *strings.Builder, key, value string) {
@@ -94,6 +102,27 @@ func writeOption(sb *strings.Builder, key, value string) {
 func Clean(path string) error {
 	content := cleanHeader + "\n"
 	return writeAtomic(path, content)
+}
+
+// Hash returns the hex-encoded sha256 of content.
+func Hash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+// CurrentHash returns Hash of path's current contents, for comparison
+// against a previously recorded Apply hash to detect drift — the file was
+// edited or removed outside mycnfm since it was last applied. ok is false
+// if the file doesn't exist.
+func CurrentHash(path string) (hash string, ok bool, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return Hash(string(data)), true, nil
 }
 
 // escapeQuoted backslash-escapes backslashes and double quotes so the value
