@@ -43,14 +43,12 @@ func Label(store *config.Store, r config.Record) string {
 	return strings.Join(parts, "/")
 }
 
-// Apply renders r's credentials into a [client] section and writes it to path
-// atomically with 0600 permissions. defs is the current global option
-// catalog — only entries r has switched on are written, using the catalog's
-// current key/value (renaming or editing a definition takes effect on the
-// next apply without touching the record). It returns the hex-encoded
-// sha256 of the exact bytes written, for later drift detection via
-// CurrentHash.
-func Apply(path string, label string, r config.Record, defs []config.OptionDef) (string, error) {
+// Render builds the [client] section content for r exactly as Apply would
+// write it, without touching disk — used both by Apply and by callers that
+// just want to preview or print the result (e.g. `mycnfm apply -o -`).
+// defs is the current global option catalog — only entries r has switched
+// on are included, using the catalog's current key/value.
+func Render(label string, r config.Record, defs []config.OptionDef) string {
 	var sb strings.Builder
 	sb.WriteString(managedHeader + "\n")
 	fmt.Fprintf(&sb, "# Active: %s  ·  applied %s\n\n", label, time.Now().Format("2006-01-02 15:04:05"))
@@ -82,8 +80,14 @@ func Apply(path string, label string, r config.Record, defs []config.OptionDef) 
 		}
 		writeOption(&sb, opt.Key, opt.Value)
 	}
+	return sb.String()
+}
 
-	content := sb.String()
+// Apply renders r's credentials into a [client] section and writes it to path
+// atomically with 0600 permissions. It returns the hex-encoded sha256 of the
+// exact bytes written, for later drift detection via CurrentHash.
+func Apply(path string, label string, r config.Record, defs []config.OptionDef) (string, error) {
+	content := Render(label, r, defs)
 	if err := writeAtomic(path, content); err != nil {
 		return "", err
 	}

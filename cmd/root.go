@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -27,6 +28,10 @@ func Execute(ctx context.Context) error {
 			return runImport(os.Args[2:])
 		case "passwd":
 			return runPasswd(os.Args[2:])
+		case "apply":
+			return runApply(os.Args[2:])
+		case "list":
+			return runList(os.Args[2:])
 		case "--version", "-v":
 			fmt.Println("mycnfm", version.Version)
 			return nil
@@ -44,7 +49,7 @@ func Execute(ctx context.Context) error {
 		return fmt.Errorf("config path: %w", err)
 	}
 
-	rawPass, err := readPassword("Master password: ")
+	rawPass, err := resolveUnlockPassword("Master password: ")
 	if err != nil {
 		return fmt.Errorf("read password: %w", err)
 	}
@@ -75,6 +80,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "mycnfm — encrypted MySQL credential switcher for ~/.my.cnf")
 	fmt.Fprintln(os.Stderr, "Usage:")
 	fmt.Fprintln(os.Stderr, "  mycnfm                     Launch the interactive TUI")
+	fmt.Fprintln(os.Stderr, "  mycnfm apply <path>        Apply one record non-interactively")
+	fmt.Fprintln(os.Stderr, "  mycnfm list [flags]        Print every record's path, one per line")
 	fmt.Fprintln(os.Stderr, "  mycnfm clean               Wipe ~/.my.cnf (no credentials left on disk)")
 	fmt.Fprintln(os.Stderr, "  mycnfm passwd [flags]      Change the vault's master password in place")
 	fmt.Fprintln(os.Stderr, "  mycnfm export [flags]      Decrypt the vault to plaintext JSON")
@@ -82,9 +89,15 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  mycnfm --version           Print the version")
 	fmt.Fprintln(os.Stderr, "  mycnfm --help              Show this message")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "passwd/export/import flags:")
+	fmt.Fprintln(os.Stderr, "apply/list/passwd/export/import flags:")
 	fmt.Fprintln(os.Stderr, "  -vault <path>   vault file (default: ~/.config/mycnfm/vault.enc)")
 	fmt.Fprintln(os.Stderr, "  -json <path>    plaintext JSON file, export/import only (default: ./mycnfm-export.json)")
+	fmt.Fprintln(os.Stderr, "  -o <path>|-     apply only: output path (default: ~/.my.cnf); - for stdout")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Non-interactive unlock (TUI, apply, list, export, passwd's current password):")
+	fmt.Fprintln(os.Stderr, "  MYCNFM_PASSWORD       master password, set directly")
+	fmt.Fprintln(os.Stderr, "  MYCNFM_PASSWORD_FILE  path to a file containing it (safer: never sits in the environment)")
+	fmt.Fprintln(os.Stderr, "  Prefer:  read -s MYCNFM_PASSWORD && export MYCNFM_PASSWORD   (keeps it out of shell history)")
 }
 
 // readPassword prompts on stderr and reads a line without echoing it.
@@ -93,6 +106,62 @@ func readPassword(prompt string) ([]byte, error) {
 	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	return pw, err
+}
+
+// resolveUnlockPassword returns the master password used to decrypt an
+// existing vault, for every place that needs to unlock one (TUI launch,
+// export, passwd's current-password prompt, apply, list). It never applies
+// to prompts for a *new* password (import, passwd's new-password prompt) —
+// those stay interactive so a typo doesn't silently lock the vault via a
+// stale env var.
+//
+// Resolution order: MYCNFM_PASSWORD (set directly — convenient, but visible
+// to other processes of the same user via /proc/<pid>/environ for the life
+// of this process); MYCNFM_PASSWORD_FILE (path to a file containing the
+// password, read once — safer for automation since the secret never sits in
+// the environment); otherwise an interactive prompt.
+func resolveUnlockPassword(prompt string) ([]byte, error) {
+	if pw, ok := os.LookupEnv("MYCNFM_PASSWORD"); ok {
+		return []byte(pw), nil
+	}
+	if path := os.Getenv("MYCNFM_PASSWORD_FILE"); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read MYCNFM_PASSWORD_FILE: %w", err)
+		}
+		return bytes.TrimRight(data, "\r\n"), nil
+	}
+	return readPassword(prompt)
+}
+
+// reorderFlagsFirst moves any of the named single-value flags (and the
+// argument immediately following each) to the front of args, leaving
+// everything else — including a positional argument — after them. The
+// stdlib flag package otherwise stops recognizing flags once it hits the
+// first non-flag argument, which would make `apply <path> -o -` silently
+// swallow "-o" and "-" as extra positional args instead of parsing "-o".
+func reorderFlagsFirst(args []string, names ...string) []string {
+	isFlag := make(map[string]bool, len(names))
+	for _, n := range names {
+		isFlag["-"+n] = true
+		isFlag["--"+n] = true
+	}
+
+	var flags, rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name, _, hasEq := strings.Cut(a, "=")
+		if isFlag[name] {
+			flags = append(flags, a)
+			if !hasEq && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return append(flags, rest...)
 }
 
 // confirm asks a yes/no question on stderr, defaulting to "no".
