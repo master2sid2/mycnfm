@@ -59,7 +59,7 @@ func runExport(args []string) error {
 		}
 	}
 
-	pass, err := readPassword("Master password: ")
+	pass, err := resolveUnlockPassword("Master password: ")
 	if err != nil {
 		return fmt.Errorf("read password: %w", err)
 	}

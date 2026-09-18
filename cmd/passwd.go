@@ -30,7 +30,7 @@ func runPasswd(args []string) error {
 		return fmt.Errorf("vault not found at %s: %w", vaultPath, err)
 	}
 
-	oldPass, err := readPassword("Current master password: ")
+	oldPass, err := resolveUnlockPassword("Current master password: ")
 	if err != nil {
 		return fmt.Errorf("read password: %w", err)
 	}

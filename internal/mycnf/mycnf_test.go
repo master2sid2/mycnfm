@@ -9,6 +9,32 @@ import (
 	"mycnfm/internal/config"
 )
 
+func TestRenderMatchesApplyWithoutTouchingDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/.my.cnf"
+	r := config.Record{Name: "x", User: "root", Password: "s3cret"}
+
+	rendered := Render("x", r, nil)
+	if !strings.Contains(rendered, "user     = root") {
+		t.Fatalf("expected rendered content to contain the user line, got:\n%s", rendered)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("Render must not write to disk")
+	}
+
+	hash, err := Apply(path, "x", r, nil)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read applied file: %v", err)
+	}
+	if Hash(string(data)) != hash {
+		t.Fatal("Apply's returned hash should match the file it wrote")
+	}
+}
+
 func TestApplyWritesClientSection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	r := config.Record{
