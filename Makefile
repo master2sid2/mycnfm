@@ -3,14 +3,28 @@ MODULE     := mycnfm
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS    := -X '$(MODULE)/internal/version.Version=$(VERSION)'
 INSTALL_DIR := $(HOME)/.local/bin
+DIST_DIR   := dist
 
-.PHONY: all build run clean test vet fmt install uninstall tidy release mycnf-clean
+.PHONY: all build build-darwin build-darwin-arm64 build-darwin-amd64 run clean test vet fmt install uninstall tidy release mycnf-clean
 
 all: build
 
 ## build: compile ./mycnfm with the version baked in
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+
+## build-darwin-arm64: cross-compile for macOS on Apple Silicon -> dist/mycnfm-darwin-arm64
+build-darwin-arm64:
+	mkdir -p $(DIST_DIR)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-darwin-arm64 .
+
+## build-darwin-amd64: cross-compile for macOS on Intel -> dist/mycnfm-darwin-amd64
+build-darwin-amd64:
+	mkdir -p $(DIST_DIR)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-darwin-amd64 .
+
+## build-darwin: build both macOS binaries (Apple Silicon + Intel) into dist/
+build-darwin: build-darwin-arm64 build-darwin-amd64
 
 ## run: build then launch the TUI
 run: build
@@ -43,7 +57,7 @@ uninstall:
 
 ## clean: remove the local build artifact (does not touch ~/.my.cnf or the vault)
 clean:
-	rm -f $(BINARY) $(BINARY)-v*
+	rm -f $(BINARY) $(BINARY)-v* $(DIST_DIR)/$(BINARY)-darwin-*
 
 ## mycnf-clean: run the app's own `clean` subcommand (wipes ~/.my.cnf, keeps the vault)
 mycnf-clean: build

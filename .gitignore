@@ -2,3 +2,4 @@
 /mycnfm-v*
 *.enc
 *.tmp
+/dist/
