@@ -1044,7 +1044,7 @@ func (a *App) detailsView(width int) string {
 		rows = append(rows, [2]string{"Database", r.Database})
 	}
 	for _, def := range a.store.OptionDefs() {
-		if !r.GlobalOptions[def.Key] {
+		if !r.GlobalOptions[def.ID()] {
 			continue
 		}
 		v := def.Value

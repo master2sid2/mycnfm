@@ -66,7 +66,7 @@ func Render(label string, r config.Record, defs []config.OptionDef) string {
 
 	sections := make(map[string][]optLine)
 	for _, def := range defs {
-		if !r.GlobalOptions[def.Key] {
+		if !r.GlobalOptions[def.ID()] {
 			continue
 		}
 		sec := def.SectionOrDefault()

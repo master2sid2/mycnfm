@@ -250,7 +250,7 @@ func (m recordFormModel) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.focusField {
 		case fldGlobalOptions:
 			if m.globalCursor < len(m.globalDefs) {
-				key := m.globalDefs[m.globalCursor].Key
+				key := m.globalDefs[m.globalCursor].ID()
 				m.globalEnabled[key] = !m.globalEnabled[key]
 			}
 			return m, nil
@@ -478,7 +478,7 @@ func (m recordFormModel) renderGlobalOptions() string {
 	for i, def := range m.globalDefs {
 		selected := inGlobal && m.globalCursor == i
 		box := "[ ]"
-		if m.globalEnabled[def.Key] {
+		if m.globalEnabled[def.ID()] {
 			box = "[x]"
 		}
 		label := def.Key
@@ -493,7 +493,7 @@ func (m recordFormModel) renderGlobalOptions() string {
 		case selected:
 			sb.WriteString(lipgloss.NewStyle().Foreground(clrFocus).Bold(true).Render("  ❯ "+row) +
 				frmDimStyle.Render("   space toggle") + "\n")
-		case m.globalEnabled[def.Key]:
+		case m.globalEnabled[def.ID()]:
 			sb.WriteString(lipgloss.NewStyle().Foreground(clrText).Render("    "+row) + "\n")
 		default:
 			sb.WriteString(frmDimStyle.Render("    " + row + "\n"))

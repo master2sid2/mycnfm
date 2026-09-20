@@ -144,7 +144,7 @@ func TestRenderPutsNonClientOptionsInTheirOwnSection(t *testing.T) {
 		Name: "x", User: "u",
 		GlobalOptions: map[string]bool{
 			"default-character-set": true,
-			"quick":                 true,
+			"[mysqldump]quick":      true, // sectioned options are tracked by OptionDef.ID()
 		},
 		CustomOptions: []config.Option{
 			{Key: "column-statistics", Enabled: true, Section: "mysqldump"},
@@ -328,5 +328,27 @@ func TestQuoteIfNeeded(t *testing.T) {
 		if got := quoteIfNeeded(in); got != want {
 			t.Errorf("quoteIfNeeded(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRenderSameKeyInBothSectionsIndependently(t *testing.T) {
+	defs := []config.OptionDef{
+		{Key: "default-character-set", Value: "utf8mb3"},
+		{Key: "default-character-set", Value: "utf8mb4", Section: "mysqldump"},
+	}
+	both := config.Record{Name: "x", User: "u", GlobalOptions: map[string]bool{
+		"default-character-set":            true,
+		"[mysqldump]default-character-set": true,
+	}}
+	out := Render("x", both, defs)
+	if !strings.Contains(out, "[client]\nuser     = u\ndefault-character-set = utf8mb3\n") ||
+		!strings.Contains(out, "[mysqldump]\ndefault-character-set = utf8mb4\n") {
+		t.Fatalf("expected each section to get its own value, got:\n%s", out)
+	}
+
+	onlyDump := config.Record{Name: "x", User: "u", GlobalOptions: map[string]bool{"[mysqldump]default-character-set": true}}
+	out = Render("x", onlyDump, defs)
+	if strings.Contains(out, "utf8mb3") || !strings.Contains(out, "utf8mb4") {
+		t.Fatalf("toggling one section must not enable the other, got:\n%s", out)
 	}
 }

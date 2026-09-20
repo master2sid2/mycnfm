@@ -291,3 +291,51 @@ func TestMoveFolderRejectsCycle(t *testing.T) {
 		t.Fatal("expected error moving a folder into its own descendant")
 	}
 }
+
+func TestSameKeyAllowedInDifferentSections(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "vault.enc"), []byte("pw"))
+
+	// Seeded default-character-set already lives in [client].
+	if err := s.AddOptionDef(OptionDef{Key: "default-character-set", Value: "utf8mb4", Section: "mysqldump"}); err != nil {
+		t.Fatalf("same key in another section must be allowed: %v", err)
+	}
+	if err := s.AddOptionDef(OptionDef{Key: "default-character-set", Value: "latin1", Section: "mysqldump"}); err == nil {
+		t.Fatal("duplicate (key, section) must be rejected")
+	}
+	if err := s.AddOptionDef(OptionDef{Key: "default-character-set", Value: "x", Section: "client"}); err == nil {
+		t.Fatal(`explicit "client" must collide with the blank-section entry`)
+	}
+}
+
+func TestOptionDefSectionChangeMigratesEnabledState(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "vault.enc"), []byte("pw"))
+	_ = s.AddOptionDef(OptionDef{Key: "quick"})
+
+	r := NewRecord()
+	r.Name, r.User = "x", "u"
+	r.GlobalOptions = map[string]bool{"quick": true}
+	_ = s.Add(r)
+
+	if err := s.UpdateOptionDef("quick", OptionDef{Key: "quick", Section: "mysqldump"}); err != nil {
+		t.Fatalf("move to another section: %v", err)
+	}
+	got, _ := s.Get(r.ID)
+	if got.GlobalOptions["quick"] || !got.GlobalOptions["[mysqldump]quick"] {
+		t.Fatalf("enabled state should follow the option to its new ID, got %v", got.GlobalOptions)
+	}
+
+	// Moving it back onto an ID that already exists must be refused.
+	_ = s.AddOptionDef(OptionDef{Key: "quick"})
+	if err := s.UpdateOptionDef("[mysqldump]quick", OptionDef{Key: "quick"}); err == nil {
+		t.Fatal("expected a collision error")
+	}
+}
+
+func TestOptionDefsSortedByKeyThenSection(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "vault.enc"), []byte("pw"))
+	_ = s.AddOptionDef(OptionDef{Key: "default-character-set", Section: "mysqldump"})
+	defs := s.OptionDefs()
+	if len(defs) != 2 || defs[0].SectionOrDefault() != "client" || defs[1].SectionOrDefault() != "mysqldump" {
+		t.Fatalf("unexpected order: %+v", defs)
+	}
+}

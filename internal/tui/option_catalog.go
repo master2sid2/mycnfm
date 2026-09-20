@@ -61,7 +61,7 @@ func (m optionCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "y", "Y":
 			if m.cursor < len(m.defs) {
-				if err := m.store.DeleteOptionDef(m.defs[m.cursor].Key); err != nil {
+				if err := m.store.DeleteOptionDef(m.defs[m.cursor].ID()); err != nil {
 					m.err = err.Error()
 				}
 				m.reload()
@@ -95,7 +95,7 @@ func (m optionCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "enter", "e":
 		if m.cursor < len(m.defs) {
 			d := m.defs[m.cursor]
-			ed := newOptionDefEditor(d, false, d.Key)
+			ed := newOptionDefEditor(d, false, d.ID())
 			m.editor = &ed
 		} else {
 			ed := newOptionDefEditor(config.OptionDef{}, true, "")
@@ -128,7 +128,7 @@ func (m optionCatalogModel) updateEditor(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.editor.isNew {
 			err = m.store.AddOptionDef(d)
 		} else {
-			err = m.store.UpdateOptionDef(m.editor.origKey, d)
+			err = m.store.UpdateOptionDef(m.editor.origID, d)
 		}
 		if err != nil {
 			m.editor.err = err.Error()
@@ -185,7 +185,7 @@ func (m optionCatalogModel) View() string {
 	}
 
 	if m.confirmDelete && m.cursor < len(m.defs) {
-		sb.WriteString("\n" + frmErrStyle.Render(fmt.Sprintf("  Delete %q? This unchecks it on every host.  [y]es / [n]o", m.defs[m.cursor].Key)) + "\n")
+		sb.WriteString("\n" + frmErrStyle.Render(fmt.Sprintf("  Delete %q? This unchecks it on every host.  [y]es / [n]o", m.defs[m.cursor].Label())) + "\n")
 	}
 	if m.err != "" {
 		sb.WriteString("\n" + frmErrStyle.Render("  ✗ "+m.err) + "\n")
@@ -216,11 +216,11 @@ type optionDefEditorModel struct {
 	section textinput.Model
 	focused int
 	isNew   bool
-	origKey string
+	origID  string
 	err     string
 }
 
-func newOptionDefEditor(d config.OptionDef, isNew bool, origKey string) optionDefEditorModel {
+func newOptionDefEditor(d config.OptionDef, isNew bool, origID string) optionDefEditorModel {
 	mk := func(ph string) textinput.Model {
 		t := textinput.New()
 		t.Placeholder = ph
@@ -236,7 +236,7 @@ func newOptionDefEditor(d config.OptionDef, isNew bool, origKey string) optionDe
 	v.SetValue(d.Value)
 	s.SetValue(d.Section)
 
-	m := optionDefEditorModel{key: k, value: v, section: s, isNew: isNew, origKey: origKey}
+	m := optionDefEditorModel{key: k, value: v, section: s, isNew: isNew, origID: origID}
 	m.applyFocus()
 	return m
 }
