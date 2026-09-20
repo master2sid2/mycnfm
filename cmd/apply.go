@@ -6,9 +6,11 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"mycnfm/internal/config"
 	"mycnfm/internal/mycnf"
+	"mycnfm/internal/watch"
 )
 
 // runApply resolves one record non-interactively (by full path, or by bare
@@ -21,17 +23,22 @@ func runApply(args []string) error {
 	fs := flag.NewFlagSet("apply", flag.ExitOnError)
 	vaultFlag := fs.String("vault", "", "vault file (default: ~/.config/mycnfm/vault.enc)")
 	outFlag := fs.String("o", "", "output path (default: ~/.my.cnf); use -o - for stdout")
+	tFlag := fs.String("t", "", "auto-wipe ~/.my.cnf after this long (default 1h; 0/off disables)")
 	// The stdlib flag package stops parsing at the first non-flag argument,
 	// so `apply <path> -o -` would otherwise treat "-o" and "-" as extra
 	// positional args. Move flags (and their values) to the front first so
 	// the path can go either before or after them.
-	if err := fs.Parse(reorderFlagsFirst(args, "vault", "o")); err != nil {
+	if err := fs.Parse(reorderFlagsFirst(args, "vault", "o", "t")); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: mycnfm apply <path-or-name> [-vault <path>] [-o <path>|-]")
 	}
 	query := fs.Arg(0)
+	timeout, err := watch.ParseTimeout(*tFlag)
+	if err != nil {
+		return err
+	}
 
 	vaultPath := *vaultFlag
 	if vaultPath == "" {
@@ -69,17 +76,32 @@ func runApply(args []string) error {
 		outPath = p
 	}
 
+	if trackActive {
+		_ = watch.Disarm() // stop the previous timer before the file changes under it
+	}
 	hash, err := mycnf.Apply(outPath, label, r, defs)
 	if err != nil {
 		return fmt.Errorf("apply: %w", err)
 	}
+
+	// The wipe timer only guards the real ~/.my.cnf, not a custom -o path.
+	var deadline time.Time
+	var armErr error
 	if trackActive {
-		if err := store.SetActive(r.ID, hash); err != nil {
+		deadline, armErr = watch.Arm(outPath, hash, timeout)
+		if err := store.SetActive(r.ID, hash, deadline); err != nil {
 			return fmt.Errorf("applied but failed to save state: %w", err)
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "Applied %s to %s\n", label, outPath)
+	msg := fmt.Sprintf("Applied %s to %s", label, outPath)
+	if !deadline.IsZero() {
+		msg += fmt.Sprintf(" (auto-wipe in %s)", time.Until(deadline).Round(time.Second))
+	}
+	fmt.Fprintln(os.Stderr, msg)
+	if armErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v — the deadline is still enforced at the next launch\n", armErr)
+	}
 	return nil
 }
 

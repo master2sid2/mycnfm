@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"mycnfm/internal/config"
 	"mycnfm/internal/keyring"
+	"mycnfm/internal/mycnf"
 )
 
 // passwordFromEnv returns the automation password, if one is configured:
@@ -43,7 +45,7 @@ func passwordFromEnv() (pw []byte, ok bool, err error) {
 // The cache holds the derived key, never the password itself, and lives only
 // in kernel memory: it disappears at logout or with `mycnfm lock`. useCache
 // is false for actions that should re-prove knowledge of the password.
-func openVault(vaultPath string, useCache bool) (*config.Store, error) {
+func openVaultUnreconciled(vaultPath string, useCache bool) (*config.Store, error) {
 	if pw, ok, err := passwordFromEnv(); err != nil {
 		return nil, err
 	} else if ok {
@@ -75,6 +77,23 @@ func openVault(vaultPath string, useCache bool) (*config.Store, error) {
 			if err := keyring.Save(vaultPath, store.SessionKey()); err == nil {
 				fmt.Fprintln(os.Stderr, "Unlocked for this session — `mycnfm lock` forgets it earlier.")
 			}
+		}
+	}
+	return store, nil
+}
+
+// openVault is openVaultUnreconciled plus a check that the active profile still
+// matches ~/.my.cnf: a profile whose auto-wipe deadline passed while nothing
+// was running (the watcher didn't survive a reboot, sleep or logout) is wiped
+// now, and a file that was already wiped is dropped as the active profile.
+func openVault(vaultPath string, useCache bool) (*config.Store, error) {
+	store, err := openVaultUnreconciled(vaultPath, useCache)
+	if err != nil {
+		return nil, err
+	}
+	if path, perr := mycnf.DefaultPath(); perr == nil {
+		if out, _ := mycnf.Reconcile(store, path, time.Now()); out == mycnf.Expired {
+			fmt.Fprintln(os.Stderr, "The auto-wipe timer had expired: ~/.my.cnf was wiped.")
 		}
 	}
 	return store, nil

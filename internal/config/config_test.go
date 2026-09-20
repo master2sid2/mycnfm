@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenSaveRoundTrip(t *testing.T) {
@@ -34,7 +35,7 @@ func TestOpenSaveRoundTrip(t *testing.T) {
 	if err := s.Add(r); err != nil {
 		t.Fatalf("add record: %v", err)
 	}
-	if err := s.SetActive(r.ID, "somehash"); err != nil {
+	if err := s.SetActive(r.ID, "somehash", time.Time{}); err != nil {
 		t.Fatalf("set active: %v", err)
 	}
 
@@ -79,7 +80,7 @@ func TestDeleteFolderCascades(t *testing.T) {
 	r.Name = "leaf"
 	r.User = "u"
 	_ = s.Add(r)
-	_ = s.SetActive(r.ID, "somehash")
+	_ = s.SetActive(r.ID, "somehash", time.Time{})
 
 	if err := s.DeleteFolder(root.ID); err != nil {
 		t.Fatalf("delete folder: %v", err)
@@ -359,7 +360,7 @@ func TestOpenWithKeyReopensWithoutPassword(t *testing.T) {
 		t.Fatalf("unexpected contents via cached key: %+v", recs)
 	}
 	// It must be fully usable: a save through the key-opened store round-trips.
-	if err := got.SetActive(r.ID, "h"); err != nil {
+	if err := got.SetActive(r.ID, "h", time.Time{}); err != nil {
 		t.Fatalf("save via key-opened store: %v", err)
 	}
 	if again, err := Open(path, []byte("pw")); err != nil || again.ActiveID() != r.ID {
@@ -382,5 +383,29 @@ func TestOpenWithKeyStaleAfterRekeyAndNeverCreates(t *testing.T) {
 
 	if _, err := OpenWithKey(filepath.Join(t.TempDir(), "missing.enc"), staleKey); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a missing vault must be ErrNotExist (never created), got %v", err)
+	}
+}
+
+func TestActiveExpiryPersistsAndClears(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	s, _ := Open(path, []byte("pw"))
+	r := NewRecord()
+	r.Name, r.User = "x", "u"
+	_ = s.Add(r)
+
+	deadline := time.Now().Add(time.Hour).Truncate(time.Second)
+	if err := s.SetActive(r.ID, "h", deadline); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+	again, _ := Open(path, []byte("pw"))
+	if !again.ActiveExpires().Equal(deadline) {
+		t.Fatalf("deadline lost across reload: got %v want %v", again.ActiveExpires(), deadline)
+	}
+
+	if err := again.ClearActive(); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if !again.ActiveExpires().IsZero() {
+		t.Fatal("clearing the active profile must clear its deadline too")
 	}
 }

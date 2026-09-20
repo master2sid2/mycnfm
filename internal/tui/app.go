@@ -13,6 +13,7 @@ import (
 	"mycnfm/internal/config"
 	"mycnfm/internal/mycnf"
 	"mycnfm/internal/version"
+	"mycnfm/internal/watch"
 )
 
 // statusDisplayTime is how long a transient status message (saved, applied,
@@ -77,6 +78,7 @@ type App struct {
 	deleteTargetName string
 
 	myCnfPath string
+	timeout   time.Duration // auto-wipe delay for profiles applied in this session; 0 = none
 
 	// Drift: whether ~/.my.cnf still matches what was last applied.
 	// Refreshed at startup, after apply/clean, and on every status tick.
@@ -90,7 +92,7 @@ type App struct {
 	statusExpireAt time.Time // zero = no transient status pending expiry
 }
 
-func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bool) *App {
+func New(store *config.Store, myCnfPath string, timeout time.Duration, statusMsg string, statusIsErr bool) *App {
 	fi := textinput.New()
 	fi.Placeholder = "search this env…"
 	fi.Prompt = "🔍 "
@@ -101,6 +103,7 @@ func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bo
 	a := &App{
 		store:       store,
 		myCnfPath:   myCnfPath,
+		timeout:     timeout,
 		statusMsg:   statusMsg,
 		statusIsErr: statusIsErr,
 		filterInput: fi,
@@ -680,21 +683,32 @@ func (a *App) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (a *App) applyRecord(r config.Record) {
 	label := mycnf.Label(a.store, r)
+	_ = watch.Disarm() // stop the previous timer before the file changes under it
 	hash, err := mycnf.Apply(a.myCnfPath, label, r, a.store.OptionDefs())
 	if err != nil {
 		a.setErr("Apply failed: " + err.Error())
 		return
 	}
-	if err := a.store.SetActive(r.ID, hash); err != nil {
+	deadline, armErr := watch.Arm(a.myCnfPath, hash, a.timeout)
+	if err := a.store.SetActive(r.ID, hash, deadline); err != nil {
 		a.setErr("Applied but failed to save state: " + err.Error())
 		return
 	}
-	a.setOK("Applied: " + label)
+	switch {
+	case armErr != nil:
+		// The deadline is still recorded, so the next launch enforces it.
+		a.setErr("Applied, but the wipe timer couldn't start: " + armErr.Error())
+	case !deadline.IsZero():
+		a.setOK("Applied: " + label + " · wipes in " + fmtRemaining(time.Until(deadline)))
+	default:
+		a.setOK("Applied: " + label)
+	}
 	a.checkDrift()
 	a.refreshList()
 }
 
 func (a *App) cleanMyCnf() {
+	_ = watch.Disarm() // nothing left to guard
 	if err := mycnf.Clean(a.myCnfPath); err != nil {
 		a.setErr("Clean failed: " + err.Error())
 		return
@@ -715,6 +729,19 @@ func (a *App) cleanMyCnf() {
 func (a *App) checkDrift() {
 	a.driftMissing = false
 	a.driftChanged = false
+
+	// First let the timer settle things: an expired deadline wipes the file
+	// (backstop for a watcher that didn't survive), and an already-wiped file
+	// drops the stale active profile — neither is "drift".
+	switch out, _ := mycnf.Reconcile(a.store, a.myCnfPath, time.Now()); out {
+	case mycnf.Expired:
+		a.setOK("Auto-wipe timer expired — ~/.my.cnf wiped")
+		a.refreshList()
+	case mycnf.FoundCleaned:
+		a.setOK("~/.my.cnf was wiped — no active profile")
+		a.refreshList()
+	}
+
 	id := a.store.ActiveID()
 	if id == "" {
 		return
@@ -864,6 +891,9 @@ func (a *App) listView() string {
 			case a.driftChanged:
 				slotS = hdrWarnStyle.Render("⚠  " + label + " — file changed")
 			default:
+				if left := time.Until(a.store.ActiveExpires()); !a.store.ActiveExpires().IsZero() && left > 0 {
+					label += "  · wipes in " + fmtRemaining(left)
+				}
 				slotS = hdrActiveStyle.Render("●  " + label)
 			}
 		} else {
@@ -1185,14 +1215,27 @@ func helpModalView() string {
 	return renderModal("?", "Keyboard Shortcuts", panelW, sb.String())
 }
 
+// fmtRemaining renders a countdown compactly: "1h12m", "47m", "30s".
+func fmtRemaining(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+}
+
 // Run is the main event loop for the TUI.
-func Run(ctx context.Context, store *config.Store) error {
+func Run(ctx context.Context, store *config.Store, timeout time.Duration) error {
 	path, err := mycnf.DefaultPath()
 	if err != nil {
 		return fmt.Errorf("resolve ~/.my.cnf: %w", err)
 	}
 
-	app := New(store, path, "", false)
+	app := New(store, path, timeout, "", false)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
