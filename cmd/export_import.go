@@ -59,14 +59,9 @@ func runExport(args []string) error {
 		}
 	}
 
-	pass, err := readPassword("Master password: ")
+	store, err := openVault(vaultPath, true)
 	if err != nil {
-		return fmt.Errorf("read password: %w", err)
-	}
-
-	store, err := config.Open(vaultPath, pass)
-	if err != nil {
-		return fmt.Errorf("open vault: %w", err)
+		return err
 	}
 
 	data, err := store.ExportJSON()

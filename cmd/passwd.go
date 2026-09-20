@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"mycnfm/internal/config"
+	"mycnfm/internal/keyring"
 )
 
 // runPasswd changes the vault's master password in place: current password
@@ -30,14 +31,11 @@ func runPasswd(args []string) error {
 		return fmt.Errorf("vault not found at %s: %w", vaultPath, err)
 	}
 
-	oldPass, err := readPassword("Current master password: ")
+	// Changing the master password re-proves the current one: never satisfied
+	// from the session cache.
+	store, err := openVault(vaultPath, false)
 	if err != nil {
-		return fmt.Errorf("read password: %w", err)
-	}
-
-	store, err := config.Open(vaultPath, oldPass)
-	if err != nil {
-		return fmt.Errorf("open vault: %w", err)
+		return err
 	}
 
 	newPass1, err := readPassword("New master password: ")
@@ -55,6 +53,7 @@ func runPasswd(args []string) error {
 	if err := store.Rekey(newPass1); err != nil {
 		return fmt.Errorf("rekey vault: %w", err)
 	}
+	_ = keyring.Delete(vaultPath) // the cached key belongs to the old password
 
 	fmt.Printf("Password changed for %s\n", vaultPath)
 	return nil

@@ -32,14 +32,28 @@ func NewFolder(parentID string) Folder {
 	}
 }
 
-// OptionDef is a globally defined optional [client] setting that any host can
-// switch on or off. Defined once from the Options catalog (press O on the
-// list); a host only stores whether it's enabled, so adding, renaming or
+// DefaultSection is the option-file group most client programs (mysql,
+// mysqldump, mysqladmin, ...) all read. It's the implicit section whenever
+// an option's Section is left blank.
+const DefaultSection = "client"
+
+// OptionDef is a globally defined optional option-file setting that any host
+// can switch on or off. Defined once from the Options catalog (press O on
+// the list); a host only stores whether it's enabled, so adding, renaming or
 // deleting a definition affects what every host sees immediately — nothing
 // is baked into a host at creation time.
+//
+// Section is the option-file group the rendered line goes into — "" (or
+// "client") is shared by every client program; anything else (e.g.
+// "mysqldump") is only read by that specific program, and takes precedence
+// over the same key set in [client] since program-specific groups are read
+// after it. This matters in practice: mysqldump does not reliably honor
+// default-character-set from [client] across MySQL/MariaDB versions, so
+// that kind of setting needs its own [mysqldump] entry to be trustworthy.
 type OptionDef struct {
-	Key   string `json:"key"`
-	Value string `json:"value,omitempty"` // "" = bare flag (no "= value")
+	Key     string `json:"key"`
+	Value   string `json:"value,omitempty"`   // "" = bare flag (no "= value")
+	Section string `json:"section,omitempty"` // "" = DefaultSection ([client])
 }
 
 // defaultOptionDefs seeds a brand-new vault with the one knob most setups
@@ -51,12 +65,51 @@ func defaultOptionDefs() []OptionDef {
 	}
 }
 
-// Option is a custom [client] entry that belongs to one host only — unlike a
-// catalog OptionDef, it's not shared or visible anywhere else.
+// Option is a custom option-file entry that belongs to one host only —
+// unlike a catalog OptionDef, it's not shared or visible anywhere else.
+// Section behaves exactly as OptionDef.Section.
 type Option struct {
 	Key     string `json:"key"`
 	Value   string `json:"value,omitempty"`
+	Section string `json:"section,omitempty"`
 	Enabled bool   `json:"enabled"`
+}
+
+// SectionOrDefault returns o.Section, or DefaultSection ("client") if blank.
+func (o OptionDef) SectionOrDefault() string {
+	if o.Section == "" {
+		return DefaultSection
+	}
+	return o.Section
+}
+
+// ID is the catalog identity of an option: the same Key may be defined once
+// per section (e.g. default-character-set in both [client] and [mysqldump]).
+// Client-section entries keep the bare Key as their ID, so records and
+// vaults written before sections existed stay valid unchanged; other
+// sections are prefixed, e.g. "[mysqldump]default-character-set". Records
+// track per-option enabled state (Record.GlobalOptions) by this ID.
+func (o OptionDef) ID() string {
+	if sec := o.SectionOrDefault(); sec != DefaultSection {
+		return "[" + sec + "]" + o.Key
+	}
+	return o.Key
+}
+
+// Label is ID with a space for display: "[mysqldump] default-character-set".
+func (o OptionDef) Label() string {
+	if sec := o.SectionOrDefault(); sec != DefaultSection {
+		return "[" + sec + "] " + o.Key
+	}
+	return o.Key
+}
+
+// SectionOrDefault returns o.Section, or DefaultSection ("client") if blank.
+func (o Option) SectionOrDefault() string {
+	if o.Section == "" {
+		return DefaultSection
+	}
+	return o.Section
 }
 
 // Record holds one set of MySQL credentials to write into ~/.my.cnf.
@@ -114,7 +167,13 @@ type vault struct {
 	Folders    []Folder    `json:"folders,omitempty"`
 	Records    []Record    `json:"records"`
 	OptionDefs []OptionDef `json:"option_defs,omitempty"`
-	ActiveID   string      `json:"active_id,omitempty"` // last record ID applied to ~/.my.cnf
+	ActiveID   string      `json:"active_id,omitempty"`   // last record ID applied to ~/.my.cnf
+	ActiveHash string      `json:"active_hash,omitempty"` // sha256 of the exact content last written, to detect drift
+	// ActiveExpires is when the auto-wipe timer should erase ~/.my.cnf; zero
+	// means no timer is armed. It's a backstop: the detached watcher normally
+	// does the wiping, but if it didn't survive (reboot, sleep, logout) the
+	// next launch honours this deadline instead.
+	ActiveExpires time.Time `json:"active_expires,omitzero"`
 }
 
 // Store is the in-memory config, backed by an encrypted file.
@@ -175,6 +234,40 @@ func Open(path string, masterPass []byte) (*Store, error) {
 	}
 	return s, nil
 }
+
+// OpenWithKey opens an existing vault using an already-derived key (see
+// SessionKey) instead of a password, skipping the expensive Argon2 step. It
+// never creates a vault: a missing file is os.ErrNotExist. A key that no
+// longer matches — the vault was re-keyed with `passwd`, or replaced by an
+// import — fails authentication, so a stale cached key is harmless.
+func OpenWithKey(path string, key []byte) (*Store, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read vault: %w", err)
+	}
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("read vault: %w", os.ErrNotExist)
+	}
+	salt, ciphertext, err := parseFile(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse vault: %w", err)
+	}
+	plaintext, err := decrypt(key, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt vault with cached key: %w", err)
+	}
+	s := &Store{path: path, salt: salt, key: slices.Clone(key)}
+	if err := json.Unmarshal(plaintext, &s.vault); err != nil {
+		return nil, fmt.Errorf("unmarshal vault: %w", err)
+	}
+	return s, nil
+}
+
+// SessionKey returns a copy of the derived encryption key, which is enough
+// to reopen this vault via OpenWithKey without the master password. It's
+// meant for a short-lived, session-scoped cache (see internal/keyring), not
+// for persisting to disk.
+func (s *Store) SessionKey() []byte { return slices.Clone(s.key) }
 
 // Save encrypts and writes the vault to disk atomically.
 func (s *Store) Save() error {
@@ -325,7 +418,7 @@ func (s *Store) deleteFolderTree(id string) {
 		if r.FolderID != id {
 			kept = append(kept, r)
 		} else if s.vault.ActiveID == r.ID {
-			s.vault.ActiveID = ""
+			s.clearActiveLocked()
 		}
 	}
 	s.vault.Records = kept
@@ -455,7 +548,7 @@ func (s *Store) Delete(id string) error {
 	}
 	s.vault.Records = records
 	if s.vault.ActiveID == id {
-		s.vault.ActiveID = ""
+		s.clearActiveLocked()
 	}
 	return s.Save()
 }
@@ -477,76 +570,96 @@ func (s *Store) MoveRecord(id, targetFolderID string) error {
 // ActiveID returns the ID of the record currently applied to ~/.my.cnf ("" = none).
 func (s *Store) ActiveID() string { return s.vault.ActiveID }
 
-// SetActiveID records which profile was last written to ~/.my.cnf and saves.
-func (s *Store) SetActiveID(id string) error {
+// ActiveHash returns the sha256 (hex) of the exact content last written for
+// ActiveID, used to detect whether ~/.my.cnf has since been changed or
+// deleted outside mycnfm.
+func (s *Store) ActiveHash() string { return s.vault.ActiveHash }
+
+// ActiveExpires returns when the applied profile should be auto-wiped, or the
+// zero time if no timer is armed.
+func (s *Store) ActiveExpires() time.Time { return s.vault.ActiveExpires }
+
+// SetActive records which record was last written to ~/.my.cnf, along with a
+// hash of the exact content written and the auto-wipe deadline (zero = none),
+// and saves.
+func (s *Store) SetActive(id, hash string, expires time.Time) error {
 	s.vault.ActiveID = id
+	s.vault.ActiveHash = hash
+	s.vault.ActiveExpires = expires
 	return s.Save()
 }
 
-// ClearActiveID forgets the active profile (used after `clean`) and saves.
-func (s *Store) ClearActiveID() error {
-	s.vault.ActiveID = ""
+// ClearActive forgets the active profile (used after `clean`) and saves.
+func (s *Store) ClearActive() error {
+	s.clearActiveLocked()
 	return s.Save()
+}
+
+// clearActiveLocked resets active-record state without saving; callers save
+// as part of a larger mutation (e.g. deleting the active record's folder).
+func (s *Store) clearActiveLocked() {
+	s.vault.ActiveID = ""
+	s.vault.ActiveHash = ""
+	s.vault.ActiveExpires = time.Time{}
 }
 
 // ── Option catalog ────────────────────────────────────────────────────────────
 
-// OptionDefs returns the global option catalog, sorted by key.
+// OptionDefs returns the global option catalog, sorted by key, then section.
 func (s *Store) OptionDefs() []OptionDef {
 	out := slices.Clone(s.vault.OptionDefs)
-	slices.SortFunc(out, func(a, b OptionDef) int { return cmp.Compare(a.Key, b.Key) })
+	slices.SortFunc(out, func(a, b OptionDef) int {
+		return cmp.Or(
+			cmp.Compare(a.Key, b.Key),
+			cmp.Compare(a.SectionOrDefault(), b.SectionOrDefault()),
+		)
+	})
 	return out
 }
 
-// AddOptionDef appends a new catalog entry and saves.
+// AddOptionDef appends a new catalog entry and saves. The same Key may
+// appear once per section, so identity is d.ID(), not d.Key.
 func (s *Store) AddOptionDef(d OptionDef) error {
 	for _, existing := range s.vault.OptionDefs {
-		if existing.Key == d.Key {
-			return fmt.Errorf("option %q already exists", d.Key)
+		if existing.ID() == d.ID() {
+			return fmt.Errorf("option %s already exists", d.Label())
 		}
 	}
 	s.vault.OptionDefs = append(s.vault.OptionDefs, d)
 	return s.Save()
 }
 
-// UpdateOptionDef replaces the catalog entry at oldKey with d — including a
-// key rename — migrating every record's enabled-state to the new key, and saves.
-func (s *Store) UpdateOptionDef(oldKey string, d OptionDef) error {
-	found := false
-	for i, existing := range s.vault.OptionDefs {
-		if existing.Key == oldKey {
-			s.vault.OptionDefs[i] = d
-			found = true
-			break
+// UpdateOptionDef replaces the catalog entry whose ID is oldID with d. If
+// the key or section changed (so the ID did), every record's enabled-state
+// is migrated to the new ID. It refuses to collide with another entry.
+func (s *Store) UpdateOptionDef(oldID string, d OptionDef) error {
+	idx := slices.IndexFunc(s.vault.OptionDefs, func(e OptionDef) bool { return e.ID() == oldID })
+	if idx < 0 {
+		return fmt.Errorf("option %q not found", oldID)
+	}
+	if newID := d.ID(); newID != oldID {
+		if slices.ContainsFunc(s.vault.OptionDefs, func(e OptionDef) bool { return e.ID() == newID }) {
+			return fmt.Errorf("option %s already exists", d.Label())
 		}
-	}
-	if !found {
-		return fmt.Errorf("option %q not found", oldKey)
-	}
-	if oldKey != d.Key {
 		for i, r := range s.vault.Records {
-			enabled, ok := r.GlobalOptions[oldKey]
+			enabled, ok := r.GlobalOptions[oldID]
 			if !ok {
 				continue
 			}
-			delete(s.vault.Records[i].GlobalOptions, oldKey)
-			s.vault.Records[i].GlobalOptions[d.Key] = enabled
+			delete(s.vault.Records[i].GlobalOptions, oldID)
+			s.vault.Records[i].GlobalOptions[newID] = enabled
 		}
 	}
+	s.vault.OptionDefs[idx] = d
 	return s.Save()
 }
 
-// DeleteOptionDef removes a catalog entry and strips it from every record.
-func (s *Store) DeleteOptionDef(key string) error {
-	defs := s.vault.OptionDefs[:0]
-	for _, d := range s.vault.OptionDefs {
-		if d.Key != key {
-			defs = append(defs, d)
-		}
-	}
-	s.vault.OptionDefs = defs
+// DeleteOptionDef removes the catalog entry whose ID is id and strips it
+// from every record.
+func (s *Store) DeleteOptionDef(id string) error {
+	s.vault.OptionDefs = slices.DeleteFunc(s.vault.OptionDefs, func(e OptionDef) bool { return e.ID() == id })
 	for i := range s.vault.Records {
-		delete(s.vault.Records[i].GlobalOptions, key)
+		delete(s.vault.Records[i].GlobalOptions, id)
 	}
 	return s.Save()
 }

@@ -13,6 +13,7 @@ import (
 	"mycnfm/internal/config"
 	"mycnfm/internal/mycnf"
 	"mycnfm/internal/version"
+	"mycnfm/internal/watch"
 )
 
 // statusDisplayTime is how long a transient status message (saved, applied,
@@ -20,7 +21,7 @@ import (
 // profile.
 const statusDisplayTime = 4 * time.Second
 
-// tickMsg drives the header's status-expiry check once a second.
+// tickMsg drives the header's status-expiry and drift checks once a second.
 type tickMsg time.Time
 
 func tickCmd() tea.Cmd {
@@ -77,6 +78,12 @@ type App struct {
 	deleteTargetName string
 
 	myCnfPath string
+	timeout   time.Duration // auto-wipe delay for profiles applied in this session; 0 = none
+
+	// Drift: whether ~/.my.cnf still matches what was last applied.
+	// Refreshed at startup, after apply/clean, and on every status tick.
+	driftMissing bool // active record set, but the file doesn't exist
+	driftChanged bool // active record set, file exists but hash doesn't match
 
 	width          int
 	height         int
@@ -85,7 +92,7 @@ type App struct {
 	statusExpireAt time.Time // zero = no transient status pending expiry
 }
 
-func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bool) *App {
+func New(store *config.Store, myCnfPath string, timeout time.Duration, statusMsg string, statusIsErr bool) *App {
 	fi := textinput.New()
 	fi.Placeholder = "search this env…"
 	fi.Prompt = "🔍 "
@@ -96,6 +103,7 @@ func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bo
 	a := &App{
 		store:       store,
 		myCnfPath:   myCnfPath,
+		timeout:     timeout,
 		statusMsg:   statusMsg,
 		statusIsErr: statusIsErr,
 		filterInput: fi,
@@ -103,6 +111,7 @@ func New(store *config.Store, myCnfPath string, statusMsg string, statusIsErr bo
 	if statusMsg != "" {
 		a.statusExpireAt = time.Now().Add(statusDisplayTime)
 	}
+	a.checkDrift()
 	a.list = newListModel()
 	a.refreshList()
 	return a
@@ -247,11 +256,13 @@ func (a *App) sortContextLabel() string {
 }
 
 func (a *App) recordEntry(r config.Record, path string) listEntry {
+	isActive := r.ID == a.store.ActiveID()
 	return listEntry{
-		kind:     entryRecord,
-		record:   r,
-		path:     path,
-		isActive: r.ID == a.store.ActiveID(),
+		kind:      entryRecord,
+		record:    r,
+		path:      path,
+		isActive:  isActive,
+		driftWarn: isActive && (a.driftMissing || a.driftChanged),
 	}
 }
 
@@ -310,6 +321,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusMsg = ""
 			a.statusExpireAt = time.Time{}
 		}
+		a.checkDrift()
 		return a, tickCmd()
 	}
 
@@ -671,29 +683,80 @@ func (a *App) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (a *App) applyRecord(r config.Record) {
 	label := mycnf.Label(a.store, r)
-	if err := mycnf.Apply(a.myCnfPath, label, r, a.store.OptionDefs()); err != nil {
+	_ = watch.Disarm() // stop the previous timer before the file changes under it
+	hash, err := mycnf.Apply(a.myCnfPath, label, r, a.store.OptionDefs())
+	if err != nil {
 		a.setErr("Apply failed: " + err.Error())
 		return
 	}
-	if err := a.store.SetActiveID(r.ID); err != nil {
+	deadline, armErr := watch.Arm(a.myCnfPath, hash, a.timeout)
+	if err := a.store.SetActive(r.ID, hash, deadline); err != nil {
 		a.setErr("Applied but failed to save state: " + err.Error())
 		return
 	}
-	a.setOK("Applied: " + label)
+	switch {
+	case armErr != nil:
+		// The deadline is still recorded, so the next launch enforces it.
+		a.setErr("Applied, but the wipe timer couldn't start: " + armErr.Error())
+	case !deadline.IsZero():
+		a.setOK("Applied: " + label + " · wipes in " + fmtRemaining(time.Until(deadline)))
+	default:
+		a.setOK("Applied: " + label)
+	}
+	a.checkDrift()
 	a.refreshList()
 }
 
 func (a *App) cleanMyCnf() {
+	_ = watch.Disarm() // nothing left to guard
 	if err := mycnf.Clean(a.myCnfPath); err != nil {
 		a.setErr("Clean failed: " + err.Error())
 		return
 	}
-	if err := a.store.ClearActiveID(); err != nil {
+	if err := a.store.ClearActive(); err != nil {
 		a.setErr("Cleaned but failed to save state: " + err.Error())
 		return
 	}
 	a.setOK("~/.my.cnf cleaned — no credentials stored")
+	a.checkDrift()
 	a.refreshList()
+}
+
+// checkDrift compares ~/.my.cnf's current contents against the hash
+// recorded for the active record, so the header can flag when the file was
+// changed or removed outside mycnfm (including via `mycnfm clean` from the
+// CLI, which intentionally doesn't touch the vault).
+func (a *App) checkDrift() {
+	a.driftMissing = false
+	a.driftChanged = false
+
+	// First let the timer settle things: an expired deadline wipes the file
+	// (backstop for a watcher that didn't survive), and an already-wiped file
+	// drops the stale active profile — neither is "drift".
+	switch out, _ := mycnf.Reconcile(a.store, a.myCnfPath, time.Now()); out {
+	case mycnf.Expired:
+		a.setOK("Auto-wipe timer expired — ~/.my.cnf wiped")
+		a.refreshList()
+	case mycnf.FoundCleaned:
+		a.setOK("~/.my.cnf was wiped — no active profile")
+		a.refreshList()
+	}
+
+	id := a.store.ActiveID()
+	if id == "" {
+		return
+	}
+	current, ok, err := mycnf.CurrentHash(a.myCnfPath)
+	if err != nil {
+		return // transient read error — don't flag drift on our own account
+	}
+	if !ok {
+		a.driftMissing = true
+		return
+	}
+	if current != a.store.ActiveHash() {
+		a.driftChanged = true
+	}
 }
 
 // ── Layout / palette ──────────────────────────────────────────────────────────
@@ -741,6 +804,11 @@ var (
 			Foreground(clrSuccess).
 			Padding(0, 2)
 
+	hdrWarnStyle = lipgloss.NewStyle().
+			Background(clrHdrBg).
+			Foreground(lipgloss.Color("214")).
+			Padding(0, 2)
+
 	hdrGapStyle = lipgloss.NewStyle().Background(clrHdrBg)
 
 	hdrBreadStyle = lipgloss.NewStyle().Background(clrHdrBg).Foreground(clrDim)
@@ -763,6 +831,7 @@ var (
 	detailValStyle     = lipgloss.NewStyle().Foreground(clrText)
 	detailDimStyle     = lipgloss.NewStyle().Foreground(clrDim)
 	detailActiveStyle  = lipgloss.NewStyle().Foreground(clrSuccess).Bold(true)
+	detailWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	emptyHintStyle     = lipgloss.NewStyle().Foreground(clrDim).Italic(true).Padding(2, 2)
 )
 
@@ -815,7 +884,18 @@ func (a *App) listView() string {
 		slotS = hdrOkStyle.Render("✓  " + a.statusMsg)
 	case a.store.ActiveID() != "":
 		if r, ok := a.store.Get(a.store.ActiveID()); ok {
-			slotS = hdrActiveStyle.Render("●  " + mycnf.Label(a.store, r))
+			label := mycnf.Label(a.store, r)
+			switch {
+			case a.driftMissing:
+				slotS = hdrWarnStyle.Render("⚠  " + label + " — file missing")
+			case a.driftChanged:
+				slotS = hdrWarnStyle.Render("⚠  " + label + " — file changed")
+			default:
+				if left := time.Until(a.store.ActiveExpires()); !a.store.ActiveExpires().IsZero() && left > 0 {
+					label += "  · wipes in " + fmtRemaining(left)
+				}
+				slotS = hdrActiveStyle.Render("●  " + label)
+			}
 		} else {
 			slotS = hdrVerStyle.Render("○  no active profile")
 		}
@@ -954,7 +1034,14 @@ func (a *App) detailsView(width int) string {
 	var sb strings.Builder
 	title := r.Name
 	if r.ID == a.store.ActiveID() {
-		title += "  " + detailActiveStyle.Render("● ACTIVE")
+		switch {
+		case a.driftMissing:
+			title += "  " + detailWarnStyle.Render("⚠ ACTIVE (file missing)")
+		case a.driftChanged:
+			title += "  " + detailWarnStyle.Render("⚠ ACTIVE (file changed)")
+		default:
+			title += "  " + detailActiveStyle.Render("● ACTIVE")
+		}
 	}
 	sb.WriteString(detailSectionStyle.Render(title) + "\n\n")
 
@@ -987,12 +1074,15 @@ func (a *App) detailsView(width int) string {
 		rows = append(rows, [2]string{"Database", r.Database})
 	}
 	for _, def := range a.store.OptionDefs() {
-		if !r.GlobalOptions[def.Key] {
+		if !r.GlobalOptions[def.ID()] {
 			continue
 		}
 		v := def.Value
 		if v == "" {
 			v = "(flag)"
+		}
+		if def.Section != "" && def.Section != config.DefaultSection {
+			v += "  [" + def.Section + "]"
 		}
 		rows = append(rows, [2]string{def.Key, v})
 	}
@@ -1003,6 +1093,9 @@ func (a *App) detailsView(width int) string {
 		v := o.Value
 		if v == "" {
 			v = "(flag)"
+		}
+		if o.Section != "" && o.Section != config.DefaultSection {
+			v += "  [" + o.Section + "]"
 		}
 		rows = append(rows, [2]string{o.Key, v})
 	}
@@ -1122,14 +1215,27 @@ func helpModalView() string {
 	return renderModal("?", "Keyboard Shortcuts", panelW, sb.String())
 }
 
+// fmtRemaining renders a countdown compactly: "1h12m", "47m", "30s".
+func fmtRemaining(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+}
+
 // Run is the main event loop for the TUI.
-func Run(ctx context.Context, store *config.Store) error {
+func Run(ctx context.Context, store *config.Store, timeout time.Duration) error {
 	path, err := mycnf.DefaultPath()
 	if err != nil {
 		return fmt.Errorf("resolve ~/.my.cnf: %w", err)
 	}
 
-	app := New(store, path, "", false)
+	app := New(store, path, timeout, "", false)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
