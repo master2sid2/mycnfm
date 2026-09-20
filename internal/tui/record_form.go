@@ -485,6 +485,9 @@ func (m recordFormModel) renderGlobalOptions() string {
 		if def.Value != "" {
 			label += " = " + def.Value
 		}
+		if def.Section != "" && def.Section != config.DefaultSection {
+			label = "[" + def.Section + "] " + label
+		}
 		row := fmt.Sprintf("%s %s", box, label)
 		switch {
 		case selected:
@@ -517,6 +520,9 @@ func (m recordFormModel) renderCustomOptions() string {
 		label := o.Key
 		if o.Value != "" {
 			label += " = " + o.Value
+		}
+		if o.Section != "" && o.Section != config.DefaultSection {
+			label = "[" + o.Section + "] " + label
 		}
 		row := fmt.Sprintf("%s %s", box, label)
 		if selected {

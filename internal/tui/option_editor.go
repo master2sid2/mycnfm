@@ -14,15 +14,17 @@ import (
 const (
 	oFldKey = iota
 	oFldValue
+	oFldSection
 	oFldEnabled
 	oFldCount
 )
 
-// optionEditorModel edits one checkbox-style [client] option (key, optional
-// value, enabled toggle).
+// optionEditorModel edits one checkbox-style option (key, optional value,
+// section, enabled toggle).
 type optionEditorModel struct {
 	key     textinput.Model
 	value   textinput.Model
+	section textinput.Model
 	enabled bool
 	focused int
 	isNew   bool
@@ -41,15 +43,17 @@ func newOptionEditor(o config.Option, isNew bool, idx int) optionEditorModel {
 	}
 	k := mk("e.g. default-character-set")
 	v := mk("e.g. utf8mb3 (leave blank for a bare flag)")
+	s := mk("client (default); e.g. mysqldump")
 	k.SetValue(o.Key)
 	v.SetValue(o.Value)
+	s.SetValue(o.Section)
 
 	enabled := o.Enabled
 	if isNew {
 		enabled = true
 	}
 
-	m := optionEditorModel{key: k, value: v, enabled: enabled, isNew: isNew, editIdx: idx}
+	m := optionEditorModel{key: k, value: v, section: s, enabled: enabled, isNew: isNew, editIdx: idx}
 	m.applyFocus()
 	return m
 }
@@ -60,6 +64,8 @@ func (m *optionEditorModel) activeInput() *textinput.Model {
 		return &m.key
 	case oFldValue:
 		return &m.value
+	case oFldSection:
+		return &m.section
 	}
 	return nil
 }
@@ -67,6 +73,7 @@ func (m *optionEditorModel) activeInput() *textinput.Model {
 func (m *optionEditorModel) applyFocus() {
 	m.key.Blur()
 	m.value.Blur()
+	m.section.Blur()
 	if inp := m.activeInput(); inp != nil {
 		inp.Focus()
 	}
@@ -106,9 +113,14 @@ func (m optionEditorModel) getResult() (config.Option, bool) {
 	if key == "" {
 		return config.Option{}, false
 	}
+	section := strings.TrimSpace(m.section.Value())
+	if section == config.DefaultSection {
+		section = ""
+	}
 	return config.Option{
 		Key:     key,
 		Value:   strings.TrimSpace(m.value.Value()),
+		Section: section,
 		Enabled: m.enabled,
 	}, true
 }
@@ -137,6 +149,7 @@ func (m optionEditorModel) view(width int) string {
 	}{
 		{"Key", oFldKey, &m.key},
 		{"Value", oFldValue, &m.value},
+		{"Section", oFldSection, &m.section},
 	} {
 		f.inp.Width = inputW
 		lbl := frmLabelStyle.Render(f.label)

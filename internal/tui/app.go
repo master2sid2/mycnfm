@@ -1051,6 +1051,9 @@ func (a *App) detailsView(width int) string {
 		if v == "" {
 			v = "(flag)"
 		}
+		if def.Section != "" && def.Section != config.DefaultSection {
+			v += "  [" + def.Section + "]"
+		}
 		rows = append(rows, [2]string{def.Key, v})
 	}
 	for _, o := range r.CustomOptions {
@@ -1060,6 +1063,9 @@ func (a *App) detailsView(width int) string {
 		v := o.Value
 		if v == "" {
 			v = "(flag)"
+		}
+		if o.Section != "" && o.Section != config.DefaultSection {
+			v += "  [" + o.Section + "]"
 		}
 		rows = append(rows, [2]string{o.Key, v})
 	}

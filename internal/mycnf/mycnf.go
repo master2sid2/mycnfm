@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,16 +44,43 @@ func Label(store *config.Store, r config.Record) string {
 	return strings.Join(parts, "/")
 }
 
-// Render builds the [client] section content for r exactly as Apply would
-// write it, without touching disk — used both by Apply and by callers that
-// just want to preview or print the result (e.g. `mycnfm apply -o -`).
-// defs is the current global option catalog — only entries r has switched
-// on are included, using the catalog's current key/value.
+// optLine is one key/value pair queued for a specific option-file section.
+type optLine struct{ key, value string }
+
+// Render builds the option-file content for r exactly as Apply would write
+// it, without touching disk — used both by Apply and by callers that just
+// want to preview or print the result (e.g. `mycnfm apply -o -`). defs is
+// the current global option catalog — only entries r has switched on are
+// included, using the catalog's current key/value/section.
+//
+// Credentials always go in [client], shared by every client program. Any
+// option whose Section is something else (e.g. "mysqldump") is instead
+// collected into its own [section] block, emitted after [client] — a
+// program-specific group is read after [client] and overrides it for the
+// same key, and some settings (default-character-set for mysqldump, notably)
+// aren't reliably honored from [client] alone across MySQL/MariaDB versions.
 func Render(label string, r config.Record, defs []config.OptionDef) string {
 	var sb strings.Builder
 	sb.WriteString(managedHeader + "\n")
 	fmt.Fprintf(&sb, "# Active: %s  ·  applied %s\n\n", label, time.Now().Format("2006-01-02 15:04:05"))
-	sb.WriteString("[client]\n")
+
+	sections := make(map[string][]optLine)
+	for _, def := range defs {
+		if !r.GlobalOptions[def.Key] {
+			continue
+		}
+		sec := def.SectionOrDefault()
+		sections[sec] = append(sections[sec], optLine{def.Key, def.Value})
+	}
+	for _, opt := range r.CustomOptions {
+		if !opt.Enabled || opt.Key == "" {
+			continue
+		}
+		sec := opt.SectionOrDefault()
+		sections[sec] = append(sections[sec], optLine{opt.Key, opt.Value})
+	}
+
+	fmt.Fprintf(&sb, "[%s]\n", config.DefaultSection)
 	if r.Port != 0 && r.Port != defaultPort {
 		fmt.Fprintf(&sb, "port     = %d\n", r.Port)
 	}
@@ -68,18 +96,24 @@ func Render(label string, r config.Record, defs []config.OptionDef) string {
 	if r.Database != "" {
 		fmt.Fprintf(&sb, "database = %s\n", quoteIfNeeded(r.Database))
 	}
-	for _, def := range defs {
-		if !r.GlobalOptions[def.Key] {
-			continue
-		}
-		writeOption(&sb, def.Key, def.Value)
+	for _, l := range sections[config.DefaultSection] {
+		writeOption(&sb, l.key, l.value)
 	}
-	for _, opt := range r.CustomOptions {
-		if !opt.Enabled || opt.Key == "" {
-			continue
+
+	var others []string
+	for name := range sections {
+		if name != config.DefaultSection {
+			others = append(others, name)
 		}
-		writeOption(&sb, opt.Key, opt.Value)
 	}
+	slices.Sort(others)
+	for _, name := range others {
+		fmt.Fprintf(&sb, "\n[%s]\n", name)
+		for _, l := range sections[name] {
+			writeOption(&sb, l.key, l.value)
+		}
+	}
+
 	return sb.String()
 }
 

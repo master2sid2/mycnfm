@@ -32,14 +32,28 @@ func NewFolder(parentID string) Folder {
 	}
 }
 
-// OptionDef is a globally defined optional [client] setting that any host can
-// switch on or off. Defined once from the Options catalog (press O on the
-// list); a host only stores whether it's enabled, so adding, renaming or
+// DefaultSection is the option-file group most client programs (mysql,
+// mysqldump, mysqladmin, ...) all read. It's the implicit section whenever
+// an option's Section is left blank.
+const DefaultSection = "client"
+
+// OptionDef is a globally defined optional option-file setting that any host
+// can switch on or off. Defined once from the Options catalog (press O on
+// the list); a host only stores whether it's enabled, so adding, renaming or
 // deleting a definition affects what every host sees immediately — nothing
 // is baked into a host at creation time.
+//
+// Section is the option-file group the rendered line goes into — "" (or
+// "client") is shared by every client program; anything else (e.g.
+// "mysqldump") is only read by that specific program, and takes precedence
+// over the same key set in [client] since program-specific groups are read
+// after it. This matters in practice: mysqldump does not reliably honor
+// default-character-set from [client] across MySQL/MariaDB versions, so
+// that kind of setting needs its own [mysqldump] entry to be trustworthy.
 type OptionDef struct {
-	Key   string `json:"key"`
-	Value string `json:"value,omitempty"` // "" = bare flag (no "= value")
+	Key     string `json:"key"`
+	Value   string `json:"value,omitempty"`   // "" = bare flag (no "= value")
+	Section string `json:"section,omitempty"` // "" = DefaultSection ([client])
 }
 
 // defaultOptionDefs seeds a brand-new vault with the one knob most setups
@@ -51,12 +65,30 @@ func defaultOptionDefs() []OptionDef {
 	}
 }
 
-// Option is a custom [client] entry that belongs to one host only — unlike a
-// catalog OptionDef, it's not shared or visible anywhere else.
+// Option is a custom option-file entry that belongs to one host only —
+// unlike a catalog OptionDef, it's not shared or visible anywhere else.
+// Section behaves exactly as OptionDef.Section.
 type Option struct {
 	Key     string `json:"key"`
 	Value   string `json:"value,omitempty"`
+	Section string `json:"section,omitempty"`
 	Enabled bool   `json:"enabled"`
+}
+
+// SectionOrDefault returns o.Section, or DefaultSection ("client") if blank.
+func (o OptionDef) SectionOrDefault() string {
+	if o.Section == "" {
+		return DefaultSection
+	}
+	return o.Section
+}
+
+// SectionOrDefault returns o.Section, or DefaultSection ("client") if blank.
+func (o Option) SectionOrDefault() string {
+	if o.Section == "" {
+		return DefaultSection
+	}
+	return o.Section
 }
 
 // Record holds one set of MySQL credentials to write into ~/.my.cnf.
