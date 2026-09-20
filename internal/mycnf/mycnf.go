@@ -195,3 +195,48 @@ func writeAtomic(path, content string) error {
 	}
 	return nil
 }
+
+// Outcome describes what Reconcile found or did.
+type Outcome int
+
+const (
+	// Unchanged: nothing to report.
+	Unchanged Outcome = iota
+	// Expired: the auto-wipe deadline had passed with the profile's file still
+	// in place, so Reconcile wiped it (the backstop for a watcher that didn't
+	// survive a reboot, sleep or logout).
+	Expired
+	// FoundCleaned: ~/.my.cnf is already the wiped placeholder — by the
+	// watcher or `mycnfm clean` — so the stale active profile was dropped.
+	FoundCleaned
+)
+
+// CleanHash is the hash of the content Clean writes, used to recognise a
+// wiped file.
+func CleanHash() string { return Hash(cleanHeader + "\n") }
+
+// Reconcile brings the vault's notion of the active profile in line with
+// reality. If the file is already the wiped placeholder, the active profile is
+// cleared; if the profile's deadline has passed while the file still holds
+// exactly what was applied, the file is wiped and the profile cleared. A
+// missing or hand-edited file is left alone (that's drift, reported
+// elsewhere). Nothing happens when no profile is active.
+func Reconcile(store *config.Store, path string, now time.Time) (Outcome, error) {
+	if store.ActiveID() == "" {
+		return Unchanged, nil
+	}
+	cur, ok, err := CurrentHash(path)
+	if err != nil || !ok {
+		return Unchanged, err
+	}
+	if cur == CleanHash() {
+		return FoundCleaned, store.ClearActive()
+	}
+	if exp := store.ActiveExpires(); !exp.IsZero() && !now.Before(exp) && cur == store.ActiveHash() {
+		if err := Clean(path); err != nil {
+			return Unchanged, err
+		}
+		return Expired, store.ClearActive()
+	}
+	return Unchanged, nil
+}

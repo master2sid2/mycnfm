@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"mycnfm/internal/config"
 )
@@ -350,5 +351,81 @@ func TestRenderSameKeyInBothSectionsIndependently(t *testing.T) {
 	out = Render("x", onlyDump, defs)
 	if strings.Contains(out, "utf8mb3") || !strings.Contains(out, "utf8mb4") {
 		t.Fatalf("toggling one section must not enable the other, got:\n%s", out)
+	}
+}
+
+func reconcileFixture(t *testing.T, expires time.Time) (*config.Store, string, string) {
+	t.Helper()
+	store, err := config.Open(filepath.Join(t.TempDir(), "vault.enc"), []byte("pw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := config.NewRecord()
+	r.Name, r.User, r.Password = "x", "u", "s3cret"
+	if err := store.Add(r); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+	hash, err := Apply(path, "x", r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetActive(r.ID, hash, expires); err != nil {
+		t.Fatal(err)
+	}
+	return store, path, hash
+}
+
+func TestReconcileWipesAnExpiredProfileStillInPlace(t *testing.T) {
+	store, path, _ := reconcileFixture(t, time.Now().Add(-time.Minute))
+	out, err := Reconcile(store, path, time.Now())
+	if err != nil || out != Expired {
+		t.Fatalf("expected Expired, got %v, %v", out, err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "s3cret") {
+		t.Fatalf("expired profile must be wiped, got:\n%s", data)
+	}
+	if store.ActiveID() != "" || !store.ActiveExpires().IsZero() {
+		t.Fatal("expiry must clear the active profile and its deadline")
+	}
+}
+
+func TestReconcileLeavesUnexpiredAndEditedFilesAlone(t *testing.T) {
+	store, path, _ := reconcileFixture(t, time.Now().Add(time.Hour))
+	if out, _ := Reconcile(store, path, time.Now()); out != Unchanged {
+		t.Fatalf("a future deadline must change nothing, got %v", out)
+	}
+
+	// Past the deadline, but the user hand-edited the file: not ours to wipe.
+	if err := os.WriteFile(path, []byte("my own config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := Reconcile(store, path, time.Now().Add(2*time.Hour)); out != Unchanged {
+		t.Fatalf("an edited file must never be wiped, got %v", out)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "my own config\n" {
+		t.Fatalf("edited file was modified: %q", data)
+	}
+}
+
+func TestReconcileDropsTheActiveProfileWhenFileIsAlreadyWiped(t *testing.T) {
+	store, path, _ := reconcileFixture(t, time.Now().Add(time.Hour))
+	if err := Clean(path); err != nil { // e.g. the watcher, or `mycnfm clean`
+		t.Fatal(err)
+	}
+	out, err := Reconcile(store, path, time.Now())
+	if err != nil || out != FoundCleaned {
+		t.Fatalf("expected FoundCleaned, got %v, %v", out, err)
+	}
+	if store.ActiveID() != "" {
+		t.Fatal("a wiped file must clear the stale active profile")
+	}
+}
+
+func TestReconcileWithNoActiveProfileDoesNothing(t *testing.T) {
+	store, _ := config.Open(filepath.Join(t.TempDir(), "vault.enc"), []byte("pw"))
+	if out, err := Reconcile(store, "/does/not/matter", time.Now()); out != Unchanged || err != nil {
+		t.Fatalf("got %v, %v", out, err)
 	}
 }

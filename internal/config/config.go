@@ -169,6 +169,11 @@ type vault struct {
 	OptionDefs []OptionDef `json:"option_defs,omitempty"`
 	ActiveID   string      `json:"active_id,omitempty"`   // last record ID applied to ~/.my.cnf
 	ActiveHash string      `json:"active_hash,omitempty"` // sha256 of the exact content last written, to detect drift
+	// ActiveExpires is when the auto-wipe timer should erase ~/.my.cnf; zero
+	// means no timer is armed. It's a backstop: the detached watcher normally
+	// does the wiping, but if it didn't survive (reboot, sleep, logout) the
+	// next launch honours this deadline instead.
+	ActiveExpires time.Time `json:"active_expires,omitzero"`
 }
 
 // Store is the in-memory config, backed by an encrypted file.
@@ -570,11 +575,17 @@ func (s *Store) ActiveID() string { return s.vault.ActiveID }
 // deleted outside mycnfm.
 func (s *Store) ActiveHash() string { return s.vault.ActiveHash }
 
+// ActiveExpires returns when the applied profile should be auto-wiped, or the
+// zero time if no timer is armed.
+func (s *Store) ActiveExpires() time.Time { return s.vault.ActiveExpires }
+
 // SetActive records which record was last written to ~/.my.cnf, along with a
-// hash of the exact content written, and saves.
-func (s *Store) SetActive(id, hash string) error {
+// hash of the exact content written and the auto-wipe deadline (zero = none),
+// and saves.
+func (s *Store) SetActive(id, hash string, expires time.Time) error {
 	s.vault.ActiveID = id
 	s.vault.ActiveHash = hash
+	s.vault.ActiveExpires = expires
 	return s.Save()
 }
 
@@ -589,6 +600,7 @@ func (s *Store) ClearActive() error {
 func (s *Store) clearActiveLocked() {
 	s.vault.ActiveID = ""
 	s.vault.ActiveHash = ""
+	s.vault.ActiveExpires = time.Time{}
 }
 
 // ── Option catalog ────────────────────────────────────────────────────────────
