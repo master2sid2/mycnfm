@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -337,5 +339,48 @@ func TestOptionDefsSortedByKeyThenSection(t *testing.T) {
 	defs := s.OptionDefs()
 	if len(defs) != 2 || defs[0].SectionOrDefault() != "client" || defs[1].SectionOrDefault() != "mysqldump" {
 		t.Fatalf("unexpected order: %+v", defs)
+	}
+}
+
+func TestOpenWithKeyReopensWithoutPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	s, _ := Open(path, []byte("pw"))
+	r := NewRecord()
+	r.Name, r.User, r.Password = "x", "u", "s3cret"
+	if err := s.Add(r); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	got, err := OpenWithKey(path, s.SessionKey())
+	if err != nil {
+		t.Fatalf("open with key: %v", err)
+	}
+	if recs := got.RecordsUnder(""); len(recs) != 1 || recs[0].Password != "s3cret" {
+		t.Fatalf("unexpected contents via cached key: %+v", recs)
+	}
+	// It must be fully usable: a save through the key-opened store round-trips.
+	if err := got.SetActive(r.ID, "h"); err != nil {
+		t.Fatalf("save via key-opened store: %v", err)
+	}
+	if again, err := Open(path, []byte("pw")); err != nil || again.ActiveID() != r.ID {
+		t.Fatalf("password open after key-store save: err=%v", err)
+	}
+}
+
+func TestOpenWithKeyStaleAfterRekeyAndNeverCreates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	s, _ := Open(path, []byte("old"))
+	_ = s.Save()
+	staleKey := s.SessionKey()
+
+	if err := s.Rekey([]byte("new")); err != nil {
+		t.Fatalf("rekey: %v", err)
+	}
+	if _, err := OpenWithKey(path, staleKey); err == nil {
+		t.Fatal("a key from before `passwd` must fail authentication")
+	}
+
+	if _, err := OpenWithKey(filepath.Join(t.TempDir(), "missing.enc"), staleKey); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing vault must be ErrNotExist (never created), got %v", err)
 	}
 }

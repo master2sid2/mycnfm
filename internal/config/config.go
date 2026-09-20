@@ -230,6 +230,40 @@ func Open(path string, masterPass []byte) (*Store, error) {
 	return s, nil
 }
 
+// OpenWithKey opens an existing vault using an already-derived key (see
+// SessionKey) instead of a password, skipping the expensive Argon2 step. It
+// never creates a vault: a missing file is os.ErrNotExist. A key that no
+// longer matches — the vault was re-keyed with `passwd`, or replaced by an
+// import — fails authentication, so a stale cached key is harmless.
+func OpenWithKey(path string, key []byte) (*Store, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read vault: %w", err)
+	}
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("read vault: %w", os.ErrNotExist)
+	}
+	salt, ciphertext, err := parseFile(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse vault: %w", err)
+	}
+	plaintext, err := decrypt(key, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt vault with cached key: %w", err)
+	}
+	s := &Store{path: path, salt: salt, key: slices.Clone(key)}
+	if err := json.Unmarshal(plaintext, &s.vault); err != nil {
+		return nil, fmt.Errorf("unmarshal vault: %w", err)
+	}
+	return s, nil
+}
+
+// SessionKey returns a copy of the derived encryption key, which is enough
+// to reopen this vault via OpenWithKey without the master password. It's
+// meant for a short-lived, session-scoped cache (see internal/keyring), not
+// for persisting to disk.
+func (s *Store) SessionKey() []byte { return slices.Clone(s.key) }
+
 // Save encrypts and writes the vault to disk atomically.
 func (s *Store) Save() error {
 	plaintext, err := json.Marshal(s.vault)

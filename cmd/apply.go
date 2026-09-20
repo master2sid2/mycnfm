@@ -42,13 +42,9 @@ func runApply(args []string) error {
 		vaultPath = p
 	}
 
-	pass, err := resolveUnlockPassword("Master password: ")
+	store, err := openVault(vaultPath, true)
 	if err != nil {
-		return fmt.Errorf("read password: %w", err)
-	}
-	store, err := config.Open(vaultPath, pass)
-	if err != nil {
-		return fmt.Errorf("open vault: %w", err)
+		return err
 	}
 
 	r, err := findRecord(store, query)
@@ -106,13 +102,9 @@ func runList(args []string) error {
 		vaultPath = p
 	}
 
-	pass, err := resolveUnlockPassword("Master password: ")
+	store, err := openVault(vaultPath, true)
 	if err != nil {
-		return fmt.Errorf("read password: %w", err)
-	}
-	store, err := config.Open(vaultPath, pass)
-	if err != nil {
-		return fmt.Errorf("open vault: %w", err)
+		return err
 	}
 
 	var paths []string
