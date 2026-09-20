@@ -135,6 +135,65 @@ func TestApplyQuotesSpecialCharacterPasswords(t *testing.T) {
 	}
 }
 
+func TestRenderPutsNonClientOptionsInTheirOwnSection(t *testing.T) {
+	defs := []config.OptionDef{
+		{Key: "default-character-set", Value: "utf8mb3"}, // no Section -> [client]
+		{Key: "quick", Section: "mysqldump"},
+	}
+	r := config.Record{
+		Name: "x", User: "u",
+		GlobalOptions: map[string]bool{
+			"default-character-set": true,
+			"[mysqldump]quick":      true, // sectioned options are tracked by OptionDef.ID()
+		},
+		CustomOptions: []config.Option{
+			{Key: "column-statistics", Enabled: true, Section: "mysqldump"},
+			{Key: "compress", Enabled: true}, // no Section -> [client]
+		},
+	}
+	content := Render("x", r, defs)
+
+	clientIdx := strings.Index(content, "[client]")
+	dumpIdx := strings.Index(content, "[mysqldump]")
+	if clientIdx == -1 || dumpIdx == -1 {
+		t.Fatalf("expected both [client] and [mysqldump] sections, got:\n%s", content)
+	}
+	if clientIdx > dumpIdx {
+		t.Fatalf("expected [client] before [mysqldump], got:\n%s", content)
+	}
+
+	clientBlock := content[clientIdx:dumpIdx]
+	dumpBlock := content[dumpIdx:]
+
+	if !strings.Contains(clientBlock, "user     = u") {
+		t.Errorf("expected user in [client], got:\n%s", clientBlock)
+	}
+	if !strings.Contains(clientBlock, "compress") {
+		t.Errorf("expected compress (no Section) in [client], got:\n%s", clientBlock)
+	}
+	if strings.Contains(clientBlock, "quick") || strings.Contains(clientBlock, "column-statistics") {
+		t.Errorf("mysqldump-scoped options must not leak into [client], got:\n%s", clientBlock)
+	}
+
+	if !strings.Contains(dumpBlock, "quick") || !strings.Contains(dumpBlock, "column-statistics") {
+		t.Errorf("expected quick and column-statistics in [mysqldump], got:\n%s", dumpBlock)
+	}
+	if strings.Contains(dumpBlock, "user") || strings.Contains(dumpBlock, "compress") {
+		t.Errorf("client-scoped entries must not leak into [mysqldump], got:\n%s", dumpBlock)
+	}
+}
+
+func TestRenderOmitsSectionsWithNothingEnabled(t *testing.T) {
+	defs := []config.OptionDef{
+		{Key: "quick", Section: "mysqldump"},
+	}
+	r := config.Record{Name: "x", User: "u"} // quick not enabled
+	content := Render("x", r, defs)
+	if strings.Contains(content, "[mysqldump]") {
+		t.Fatalf("expected no [mysqldump] section when nothing targets it, got:\n%s", content)
+	}
+}
+
 func TestApplyWritesEnabledGlobalOptionsOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".my.cnf")
 	defs := []config.OptionDef{
@@ -269,5 +328,27 @@ func TestQuoteIfNeeded(t *testing.T) {
 		if got := quoteIfNeeded(in); got != want {
 			t.Errorf("quoteIfNeeded(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRenderSameKeyInBothSectionsIndependently(t *testing.T) {
+	defs := []config.OptionDef{
+		{Key: "default-character-set", Value: "utf8mb3"},
+		{Key: "default-character-set", Value: "utf8mb4", Section: "mysqldump"},
+	}
+	both := config.Record{Name: "x", User: "u", GlobalOptions: map[string]bool{
+		"default-character-set":            true,
+		"[mysqldump]default-character-set": true,
+	}}
+	out := Render("x", both, defs)
+	if !strings.Contains(out, "[client]\nuser     = u\ndefault-character-set = utf8mb3\n") ||
+		!strings.Contains(out, "[mysqldump]\ndefault-character-set = utf8mb4\n") {
+		t.Fatalf("expected each section to get its own value, got:\n%s", out)
+	}
+
+	onlyDump := config.Record{Name: "x", User: "u", GlobalOptions: map[string]bool{"[mysqldump]default-character-set": true}}
+	out = Render("x", onlyDump, defs)
+	if strings.Contains(out, "utf8mb3") || !strings.Contains(out, "utf8mb4") {
+		t.Fatalf("toggling one section must not enable the other, got:\n%s", out)
 	}
 }

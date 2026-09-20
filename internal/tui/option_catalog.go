@@ -61,7 +61,7 @@ func (m optionCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "y", "Y":
 			if m.cursor < len(m.defs) {
-				if err := m.store.DeleteOptionDef(m.defs[m.cursor].Key); err != nil {
+				if err := m.store.DeleteOptionDef(m.defs[m.cursor].ID()); err != nil {
 					m.err = err.Error()
 				}
 				m.reload()
@@ -95,7 +95,7 @@ func (m optionCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "enter", "e":
 		if m.cursor < len(m.defs) {
 			d := m.defs[m.cursor]
-			ed := newOptionDefEditor(d, false, d.Key)
+			ed := newOptionDefEditor(d, false, d.ID())
 			m.editor = &ed
 		} else {
 			ed := newOptionDefEditor(config.OptionDef{}, true, "")
@@ -128,7 +128,7 @@ func (m optionCatalogModel) updateEditor(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.editor.isNew {
 			err = m.store.AddOptionDef(d)
 		} else {
-			err = m.store.UpdateOptionDef(m.editor.origKey, d)
+			err = m.store.UpdateOptionDef(m.editor.origID, d)
 		}
 		if err != nil {
 			m.editor.err = err.Error()
@@ -167,6 +167,9 @@ func (m optionCatalogModel) View() string {
 		if d.Value != "" {
 			label += " = " + d.Value
 		}
+		if d.Section != "" && d.Section != config.DefaultSection {
+			label = "[" + d.Section + "] " + label
+		}
 		if sel {
 			sb.WriteString(lipgloss.NewStyle().Foreground(clrFocus).Bold(true).Render("  ❯ "+label) + "\n")
 		} else {
@@ -182,7 +185,7 @@ func (m optionCatalogModel) View() string {
 	}
 
 	if m.confirmDelete && m.cursor < len(m.defs) {
-		sb.WriteString("\n" + frmErrStyle.Render(fmt.Sprintf("  Delete %q? This unchecks it on every host.  [y]es / [n]o", m.defs[m.cursor].Key)) + "\n")
+		sb.WriteString("\n" + frmErrStyle.Render(fmt.Sprintf("  Delete %q? This unchecks it on every host.  [y]es / [n]o", m.defs[m.cursor].Label())) + "\n")
 	}
 	if m.err != "" {
 		sb.WriteString("\n" + frmErrStyle.Render("  ✗ "+m.err) + "\n")
@@ -200,22 +203,24 @@ func (m optionCatalogModel) View() string {
 const (
 	odFldKey = iota
 	odFldValue
+	odFldSection
 	odFldCount
 )
 
-// optionDefEditorModel edits one catalog definition's key/value. Unlike
-// optionEditorModel (per-host custom options), there's no enabled toggle
-// here — enabling happens per host, not in the catalog.
+// optionDefEditorModel edits one catalog definition's key/value/section.
+// Unlike optionEditorModel (per-host custom options), there's no enabled
+// toggle here — enabling happens per host, not in the catalog.
 type optionDefEditorModel struct {
 	key     textinput.Model
 	value   textinput.Model
+	section textinput.Model
 	focused int
 	isNew   bool
-	origKey string
+	origID  string
 	err     string
 }
 
-func newOptionDefEditor(d config.OptionDef, isNew bool, origKey string) optionDefEditorModel {
+func newOptionDefEditor(d config.OptionDef, isNew bool, origID string) optionDefEditorModel {
 	mk := func(ph string) textinput.Model {
 		t := textinput.New()
 		t.Placeholder = ph
@@ -226,24 +231,31 @@ func newOptionDefEditor(d config.OptionDef, isNew bool, origKey string) optionDe
 	}
 	k := mk("e.g. default-character-set")
 	v := mk("e.g. utf8mb3 (leave blank for a bare flag)")
+	s := mk("client (default); e.g. mysqldump")
 	k.SetValue(d.Key)
 	v.SetValue(d.Value)
+	s.SetValue(d.Section)
 
-	m := optionDefEditorModel{key: k, value: v, isNew: isNew, origKey: origKey}
+	m := optionDefEditorModel{key: k, value: v, section: s, isNew: isNew, origID: origID}
 	m.applyFocus()
 	return m
 }
 
 func (m *optionDefEditorModel) activeInput() *textinput.Model {
-	if m.focused == odFldKey {
+	switch m.focused {
+	case odFldKey:
 		return &m.key
+	case odFldValue:
+		return &m.value
+	default:
+		return &m.section
 	}
-	return &m.value
 }
 
 func (m *optionDefEditorModel) applyFocus() {
 	m.key.Blur()
 	m.value.Blur()
+	m.section.Blur()
 	m.activeInput().Focus()
 }
 
@@ -266,7 +278,11 @@ func (m optionDefEditorModel) getResult() (config.OptionDef, bool) {
 	if key == "" {
 		return config.OptionDef{}, false
 	}
-	return config.OptionDef{Key: key, Value: strings.TrimSpace(m.value.Value())}, true
+	section := strings.TrimSpace(m.section.Value())
+	if section == config.DefaultSection {
+		section = "" // stored blank; SectionOrDefault treats both the same
+	}
+	return config.OptionDef{Key: key, Value: strings.TrimSpace(m.value.Value()), Section: section}, true
 }
 
 func (m optionDefEditorModel) view(width int) string {
@@ -292,6 +308,7 @@ func (m optionDefEditorModel) view(width int) string {
 	}{
 		{"Key", odFldKey, &m.key},
 		{"Value", odFldValue, &m.value},
+		{"Section", odFldSection, &m.section},
 	} {
 		f.inp.Width = inputW
 		lbl := frmLabelStyle.Render(f.label)

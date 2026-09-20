@@ -1044,12 +1044,15 @@ func (a *App) detailsView(width int) string {
 		rows = append(rows, [2]string{"Database", r.Database})
 	}
 	for _, def := range a.store.OptionDefs() {
-		if !r.GlobalOptions[def.Key] {
+		if !r.GlobalOptions[def.ID()] {
 			continue
 		}
 		v := def.Value
 		if v == "" {
 			v = "(flag)"
+		}
+		if def.Section != "" && def.Section != config.DefaultSection {
+			v += "  [" + def.Section + "]"
 		}
 		rows = append(rows, [2]string{def.Key, v})
 	}
@@ -1060,6 +1063,9 @@ func (a *App) detailsView(width int) string {
 		v := o.Value
 		if v == "" {
 			v = "(flag)"
+		}
+		if o.Section != "" && o.Section != config.DefaultSection {
+			v += "  [" + o.Section + "]"
 		}
 		rows = append(rows, [2]string{o.Key, v})
 	}
