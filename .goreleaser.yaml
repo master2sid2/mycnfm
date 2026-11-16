@@ -24,8 +24,8 @@ archives:
 checksum:
   name_template: SHA256SUMS
 
-changelog:
-  disable: true # the notes come from docs/releases/<tag>.md
+# The release notes come from docs/releases/<tag>.md (see release.yml);
+# do not disable the changelog pipe: it is also what applies --release-notes.
 
 release:
   footer: |
