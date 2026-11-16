@@ -409,3 +409,52 @@ func TestActiveExpiryPersistsAndClears(t *testing.T) {
 		t.Fatal("clearing the active profile must clear its deadline too")
 	}
 }
+
+func TestOpenRejectsCorruptNonceWithoutPanicking(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	pass := []byte("pw")
+	s, err := Open(path, pass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Header: magic(4) version(4) salt-len(4) salt(32), then nonce-len(4).
+	off := 12 + saltLen
+	for _, n := range []byte{0, 1, 16, 255} {
+		bad := append([]byte(nil), raw...)
+		bad[off], bad[off+1], bad[off+2], bad[off+3] = 0, 0, 0, n
+		if err := os.WriteFile(path, bad, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Open(path, pass); err == nil {
+			t.Errorf("nonce length %d: expected an error", n)
+		}
+	}
+}
+
+func TestSaveWritesVaultPrivately(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.enc")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, []byte("pw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("vault mode = %o, want 600", mode)
+	}
+}

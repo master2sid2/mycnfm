@@ -324,6 +324,8 @@ func TestQuoteIfNeeded(t *testing.T) {
 		"simple":     "simple",
 		"has space":  `"has space"`,
 		`with"quote`: `"with\"quote"`,
+		"two\nlines": `"two\nlines"`,
+		"cr\rhere":   `"cr\rhere"`,
 	}
 	for in, want := range cases {
 		if got := quoteIfNeeded(in); got != want {
@@ -427,5 +429,46 @@ func TestReconcileWithNoActiveProfileDoesNothing(t *testing.T) {
 	store, _ := config.Open(filepath.Join(t.TempDir(), "vault.enc"), []byte("pw"))
 	if out, err := Reconcile(store, "/does/not/matter", time.Now()); out != Unchanged || err != nil {
 		t.Fatalf("got %v, %v", out, err)
+	}
+}
+
+func TestApplyKeepsMultiLineValuesOnOneLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+	r := config.Record{Name: "x", User: "u", Password: "line1\nhost = evil", Socket: "/run/my sql/mysqld.sock"}
+	if _, err := Apply(path, "x", r, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	for _, want := range []string{
+		`password = "line1\nhost = evil"` + "\n",
+		`socket   = "/run/my sql/mysqld.sock"` + "\n",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "\nhost = evil") {
+		t.Errorf("a newline in the password produced an option line of its own:\n%s", content)
+	}
+}
+
+func TestApplyTightensPermissionsOfAnExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".my.cnf")
+	if err := os.WriteFile(path, []byte("[client]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(path, "x", config.Record{Name: "x", User: "u", Password: "p"}, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("~/.my.cnf mode = %o, want 600", mode)
 	}
 }

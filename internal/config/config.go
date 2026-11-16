@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"mycnfm/internal/fsutil"
 )
 
 // Folder is a named node in the tree used to organise records. A root-level
@@ -279,13 +281,7 @@ func (s *Store) Save() error {
 	if err != nil {
 		return err
 	}
-	raw := buildFile(s.salt, ciphertext)
-
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return fsutil.WriteFileAtomic(s.path, buildFile(s.salt, ciphertext), 0o600)
 }
 
 // ExportJSON returns the vault's contents as indented, human-readable JSON.

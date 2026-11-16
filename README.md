@@ -62,7 +62,7 @@ toolchain is needed.
 mycnfm
 ```
 
-1. The first run creates the vault at `~/.config/mycnfm/vault.enc` and asks for a **master password**. There is no confirmation prompt on first run — type it carefully (you can change it later with `mycnfm passwd`).
+1. The first run creates the vault at `~/.config/mycnfm/vault.enc` and asks for a **master password**, twice. You can change it later with `mycnfm passwd`.
 2. Press `g`, type `stage`, `enter` — you have created an environment. `enter` again to open it.
 3. Press `n` and fill in the host: a name, and whichever of user / password / socket / port / database you need. `ctrl+s` saves.
 4. Press `enter` on the profile. `~/.my.cnf` now holds it, the header shows `● stage/auth-01 · wipes in 59m`, and `mysql` just works.

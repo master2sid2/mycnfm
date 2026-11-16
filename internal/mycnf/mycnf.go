@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"mycnfm/internal/config"
+	"mycnfm/internal/fsutil"
 )
 
 const (
@@ -85,7 +86,7 @@ func Render(label string, r config.Record, defs []config.OptionDef) string {
 		fmt.Fprintf(&sb, "port     = %d\n", r.Port)
 	}
 	if r.Socket != "" {
-		fmt.Fprintf(&sb, "socket   = %s\n", r.Socket)
+		fmt.Fprintf(&sb, "socket   = %s\n", quoteIfNeeded(r.Socket))
 	}
 	if r.User != "" {
 		fmt.Fprintf(&sb, "user     = %s\n", quoteIfNeeded(r.User))
@@ -163,16 +164,19 @@ func CurrentHash(path string) (hash string, ok bool, err error) {
 	return Hash(string(data)), true, nil
 }
 
-// escapeQuoted backslash-escapes backslashes and double quotes so the value
-// survives round-tripping through a double-quoted option-file string.
+// escapeQuoted backslash-escapes backslashes, double quotes and line breaks
+// so the value survives round-tripping through a double-quoted option-file
+// string. An unescaped newline would end the line and turn the rest of the
+// value into an option line of its own.
 func escapeQuoted(v string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v)
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`).Replace(v)
 }
 
 // quoteIfNeeded wraps a value in double quotes if it contains characters that
-// would otherwise break the option-file grammar (spaces, #, quotes, backslashes).
+// would otherwise break the option-file grammar (spaces, #, quotes,
+// backslashes, line breaks).
 func quoteIfNeeded(v string) string {
-	if strings.ContainsAny(v, " \t#\"'\\") {
+	if strings.ContainsAny(v, " \t\n\r#\"'\\") {
 		return `"` + escapeQuoted(v) + `"`
 	}
 	return v
@@ -186,12 +190,8 @@ func quotePassword(v string) string {
 }
 
 func writeAtomic(path, content string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename into place: %w", err)
+	if err := fsutil.WriteFileAtomic(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }
