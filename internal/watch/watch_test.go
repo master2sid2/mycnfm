@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"mycnfm/internal/mycnf"
+	"github.com/master2sid2/mycnfm/internal/mycnf"
 )
 
 func TestParseTimeout(t *testing.T) {

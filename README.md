@@ -1,5 +1,10 @@
 # mycnfm
 
+[![CI](https://github.com/master2sid2/mycnfm/actions/workflows/ci.yml/badge.svg)](https://github.com/master2sid2/mycnfm/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/master2sid2/mycnfm)](https://github.com/master2sid2/mycnfm/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/master2sid2/mycnfm)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **An encrypted credential switcher for `~/.my.cnf`.**
 
 If you work with many MySQL/MariaDB servers that each have their own login,
@@ -45,15 +50,23 @@ on disk.
 ## Install
 
 ```bash
-git clone <repository-url> mycnfm
+go install github.com/master2sid2/mycnfm@latest
+```
+
+Or download a binary for Linux or macOS (amd64, arm64) from the
+[releases](https://github.com/master2sid2/mycnfm/releases) page and check it
+against `SHA256SUMS`. Or build from source:
+
+```bash
+git clone https://github.com/master2sid2/mycnfm.git
 cd mycnfm
 make build            # ./mycnfm, with the version baked in
 make install          # copies it to ~/.local/bin (make sure that is on your PATH)
 mycnfm --version
 ```
 
-`make build-darwin` cross-compiles `dist/mycnfm-darwin-arm64` (Apple Silicon)
-and `dist/mycnfm-darwin-amd64` (Intel). All dependencies are pure Go, so no C
+`make dist` builds the release binaries for Linux and macOS into `dist/`, and
+`make build-darwin` just the macOS ones. All dependencies are pure Go, so no C
 toolchain is needed.
 
 ## Quick start

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/fsutil"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/fsutil"
 )
 
 const (

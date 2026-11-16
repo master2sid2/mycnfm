@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/keyring"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/keyring"
 )
 
 // runPasswd changes the vault's master password in place: current password

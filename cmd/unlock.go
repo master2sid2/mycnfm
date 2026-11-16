@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/keyring"
-	"mycnfm/internal/mycnf"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/keyring"
+	"github.com/master2sid2/mycnfm/internal/mycnf"
 )
 
 // passwordFromEnv returns the automation password, if one is configured:

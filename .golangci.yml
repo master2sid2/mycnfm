@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint
+    - misspell
+    - unconvert
+  exclusions:
+    rules:
+      # sortByName is the zero value of sortMode: used, but never by name.
+      - path: internal/tui/list.go
+        text: "const sortByName is unused"
+        linters: [unused]
+    presets:
+      - std-error-handling
+      - common-false-positives
+
+formatters:
+  enable:
+    - gofmt

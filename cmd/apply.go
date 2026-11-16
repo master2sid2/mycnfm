@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/mycnf"
-	"mycnfm/internal/watch"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/mycnf"
+	"github.com/master2sid2/mycnfm/internal/watch"
 )
 
 // runApply resolves one record non-interactively (by full path, or by bare

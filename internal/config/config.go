@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"mycnfm/internal/fsutil"
+	"github.com/master2sid2/mycnfm/internal/fsutil"
 )
 
 // Folder is a named node in the tree used to organise records. A root-level

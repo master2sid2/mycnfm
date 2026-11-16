@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"mycnfm/cmd"
+	"github.com/master2sid2/mycnfm/cmd"
 )
 
 func main() {
