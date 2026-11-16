@@ -10,6 +10,10 @@ Longer, narrative release notes live in [docs/releases/](docs/releases/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-16
+
+First release published on GitHub, with Linux and macOS binaries.
+
 ### Changed
 
 - **The first run asks for the new master password twice** and creates no vault when the two do not match. A typo used to lock the new vault for good.

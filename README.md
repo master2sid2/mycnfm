@@ -18,7 +18,7 @@ on disk.
 *Illustrative sketch of the interface (not a real screenshot):*
 
 ```
-🗄  mycnfm  ›  stage                                  ● stage/auth-01 · wipes in 47m   v0.2.0
+🗄  mycnfm  ›  stage                                  ● stage/auth-01 · wipes in 47m   v0.2.1
 ╭─ list ────────────────────────────╮ ╭─ details ─────────────────────────╮
 │ ── AUTH ───────────────────────── │ │ auth-01  ● ACTIVE                 │
 │ ▶  auth-01  ●                     │ │ Group     auth                    │
