@@ -10,6 +10,21 @@ Longer, narrative release notes live in [docs/releases/](docs/releases/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The first run asks for the new master password twice** and creates no vault when the two do not match. A typo used to lock the new vault for good.
+
+### Fixed
+
+- **`~/.my.cnf`, the vault and `export` files always end up with mode `0600`.** They used to be written through a fixed `<file>.tmp` name with `os.WriteFile`, which keeps the mode of an existing file, so a leftover temporary file with wider permissions could leave passwords readable by other users. Writes now go through a randomly named temporary file whose mode is set explicitly, and are synced to disk before the rename.
+- **Line breaks in values are escaped.** A newline in a password (or another quoted value) used to end the line in `~/.my.cnf`, turning the rest of the value into an option line of its own. It is now written as `\n` inside the quotes, which MySQL and MariaDB read back as the original character.
+- **The socket path is quoted** when it contains spaces or other special characters.
+- **A damaged vault reports an error instead of crashing.** A nonce length other than 12 in the file made `mycnfm` panic.
+
+### Security
+
+- Updated `golang.org/x/crypto` (0.24 → 0.59), `x/sys`, `x/term`, `x/text` and `x/sync`. mycnfm only uses Argon2 from `x/crypto`; the update clears scanner reports for other packages of the module.
+
 ## [0.2.0] - 2026-09-20
 
 Automation and hygiene: the master password is asked once per session,

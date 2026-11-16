@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 
@@ -61,9 +62,27 @@ func openVaultUnreconciled(vaultPath string, useCache bool) (*config.Store, erro
 		}
 	}
 
-	pw, err := readPassword("Master password: ")
+	// A new vault is encrypted with whatever is typed now, and a typo would
+	// lock it for good: ask twice.
+	_, statErr := os.Stat(vaultPath)
+	creating := errors.Is(statErr, fs.ErrNotExist)
+	prompt := "Master password: "
+	if creating {
+		fmt.Fprintf(os.Stderr, "No vault at %s yet: choose a master password for the new one.\n", vaultPath)
+		prompt = "New master password: "
+	}
+	pw, err := readPassword(prompt)
 	if err != nil {
 		return nil, fmt.Errorf("read password: %w", err)
+	}
+	if creating {
+		again, err := readPassword("Confirm master password: ")
+		if err != nil {
+			return nil, fmt.Errorf("read password: %w", err)
+		}
+		if !bytes.Equal(pw, again) {
+			return nil, errors.New("passwords do not match; no vault was created")
+		}
 	}
 	store, err := openWithPassword(vaultPath, pw)
 	if err != nil {

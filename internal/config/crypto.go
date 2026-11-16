@@ -67,13 +67,6 @@ func decrypt(key, data []byte) ([]byte, error) {
 	if len(data) < 4 {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
-	nonceSize := int(binary.BigEndian.Uint32(data[:4]))
-	if len(data) < 4+nonceSize {
-		return nil, fmt.Errorf("ciphertext truncated")
-	}
-	nonce := data[4 : 4+nonceSize]
-	ciphertext := data[4+nonceSize:]
-
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -82,7 +75,17 @@ func decrypt(key, data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return gcm.Open(nil, nonce, ciphertext, nil)
+
+	// The length comes from the file: check it, gcm.Open panics on a nonce
+	// of the wrong size.
+	nonceSize := int(binary.BigEndian.Uint32(data[:4]))
+	if nonceSize != gcm.NonceSize() {
+		return nil, fmt.Errorf("invalid nonce length %d", nonceSize)
+	}
+	if len(data) < 4+nonceSize+gcm.Overhead() {
+		return nil, fmt.Errorf("ciphertext truncated")
+	}
+	return gcm.Open(nil, data[4:4+nonceSize], data[4+nonceSize:], nil)
 }
 
 // buildFile serialises the on-disk format:
