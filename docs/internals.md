@@ -10,6 +10,7 @@ internal/mycnf/         rendering ~/.my.cnf, hashing, drift reconciliation
 internal/tui/           the bubbletea interface
 internal/keyring/       Linux session-keyring key cache (stub elsewhere)
 internal/watch/         the auto-wipe timer
+internal/fsutil/        atomic, private (0600) file writes
 internal/version/       version string, set with -ldflags
 ```
 
@@ -26,7 +27,7 @@ All integers are big-endian.
 
 - The key is derived from the master password with **Argon2id** (time 2, memory 64 MiB, 4 threads, 32-byte output) and the vault's own random salt.
 - The payload is the JSON-encoded store, sealed with **AES-256-GCM**. GCM authenticates the ciphertext, so any modification of it fails to open. The salt and header fields are not authenticated, but changing them yields a different key or a parse error, and never a successful open.
-- Saves are atomic: the new vault is written to a temporary file in the same directory and renamed over the old one, so a crash cannot leave a half-written vault.
+- Saves are atomic: the new vault is written to a randomly named temporary file in the same directory, with its mode set to `0600` explicitly and synced to disk, then renamed over the old one, so a crash cannot leave a half-written vault and the file never inherits wider permissions. `~/.my.cnf` and `export` files are written the same way (`internal/fsutil`).
 - A new nonce is generated on **every** save.
 
 ### Store contents
@@ -110,5 +111,5 @@ per-user keyring shared by all your sessions. `mycnfm lock` clears either.
 ## Building and versioning
 
 The version comes from `git describe --tags --always --dirty` at build time and
-is injected with `-ldflags "-X mycnfm/internal/version.Version=…"`. A build
+is injected with `-ldflags "-X github.com/master2sid2/mycnfm/internal/version.Version=…"`. A build
 outside a git checkout reports `dev`. See [CONTRIBUTING](../CONTRIBUTING.md).

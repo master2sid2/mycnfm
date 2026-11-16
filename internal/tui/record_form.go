@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
 )
 
 type recordSavedMsg struct{ record config.Record }

@@ -10,10 +10,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/mycnf"
-	"mycnfm/internal/version"
-	"mycnfm/internal/watch"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/mycnf"
+	"github.com/master2sid2/mycnfm/internal/version"
+	"github.com/master2sid2/mycnfm/internal/watch"
 )
 
 // statusDisplayTime is how long a transient status message (saved, applied,

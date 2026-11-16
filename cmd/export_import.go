@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/fsutil"
 )
 
 // defaultJSONPath returns ./mycnfm-export.json relative to the current
@@ -68,7 +69,7 @@ func runExport(args []string) error {
 	if err != nil {
 		return fmt.Errorf("export: %w", err)
 	}
-	if err := os.WriteFile(jsonPath, data, 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(jsonPath, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", jsonPath, err)
 	}
 

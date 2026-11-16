@@ -1,5 +1,10 @@
 # mycnfm
 
+[![CI](https://github.com/master2sid2/mycnfm/actions/workflows/ci.yml/badge.svg)](https://github.com/master2sid2/mycnfm/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/master2sid2/mycnfm)](https://github.com/master2sid2/mycnfm/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/master2sid2/mycnfm)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **An encrypted credential switcher for `~/.my.cnf`.**
 
 If you work with many MySQL/MariaDB servers that each have their own login,
@@ -13,7 +18,7 @@ on disk.
 *Illustrative sketch of the interface (not a real screenshot):*
 
 ```
-🗄  mycnfm  ›  stage                                  ● stage/auth-01 · wipes in 47m   v0.2.0
+🗄  mycnfm  ›  stage                                  ● stage/auth-01 · wipes in 47m   v0.2.1
 ╭─ list ────────────────────────────╮ ╭─ details ─────────────────────────╮
 │ ── AUTH ───────────────────────── │ │ auth-01  ● ACTIVE                 │
 │ ▶  auth-01  ●                     │ │ Group     auth                    │
@@ -45,15 +50,23 @@ on disk.
 ## Install
 
 ```bash
-git clone <repository-url> mycnfm
+go install github.com/master2sid2/mycnfm@latest
+```
+
+Or download a binary for Linux or macOS (amd64, arm64) from the
+[releases](https://github.com/master2sid2/mycnfm/releases) page and check it
+against `SHA256SUMS`. Or build from source:
+
+```bash
+git clone https://github.com/master2sid2/mycnfm.git
 cd mycnfm
 make build            # ./mycnfm, with the version baked in
 make install          # copies it to ~/.local/bin (make sure that is on your PATH)
 mycnfm --version
 ```
 
-`make build-darwin` cross-compiles `dist/mycnfm-darwin-arm64` (Apple Silicon)
-and `dist/mycnfm-darwin-amd64` (Intel). All dependencies are pure Go, so no C
+`make dist` builds the release binaries for Linux and macOS into `dist/`, and
+`make build-darwin` just the macOS ones. All dependencies are pure Go, so no C
 toolchain is needed.
 
 ## Quick start
@@ -62,7 +75,7 @@ toolchain is needed.
 mycnfm
 ```
 
-1. The first run creates the vault at `~/.config/mycnfm/vault.enc` and asks for a **master password**. There is no confirmation prompt on first run — type it carefully (you can change it later with `mycnfm passwd`).
+1. The first run creates the vault at `~/.config/mycnfm/vault.enc` and asks for a **master password**, twice. You can change it later with `mycnfm passwd`.
 2. Press `g`, type `stage`, `enter` — you have created an environment. `enter` again to open it.
 3. Press `n` and fill in the host: a name, and whichever of user / password / socket / port / database you need. `ctrl+s` saves.
 4. Press `enter` on the profile. `~/.my.cnf` now holds it, the header shows `● stage/auth-01 · wipes in 59m`, and `mysql` just works.

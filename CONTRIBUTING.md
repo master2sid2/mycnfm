@@ -15,7 +15,7 @@ and released.
 Requires Go 1.26 or newer.
 
 ```bash
-git clone <repo> && cd mysql_mycnf
+git clone https://github.com/master2sid2/mycnfm.git && cd mycnfm
 git checkout dev
 make build          # ./mycnfm with the version baked in
 make test           # go test ./...
@@ -40,7 +40,7 @@ Other Makefile targets: `run`, `install`, `uninstall`, `tidy`, `clean`,
 
 ## Before you open a change
 
-- `gofmt`-clean, `go vet ./...` clean, `go test ./...` green.
+- `gofmt`-clean, `go vet ./...` clean, `go test ./...` green, and `golangci-lint run` clean (configured in `.golangci.yml`; CI runs all of these on every push and pull request).
 - New behaviour comes with tests next to the code it covers (`*_test.go` in the same package). The TUI is tested through its model's `Update`; the vault, renderer and timer have plain unit tests.
 - Anything that changes what is written to `~/.my.cnf` or to the vault format must keep old vaults opening (additive, optional, `omitzero` fields) or say loudly in the change why not.
 - Update the docs that describe the behaviour, and add a line to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md).
@@ -79,7 +79,8 @@ Only maintainers do this.
 3. `make test vet`, then `make build && ./mycnfm --version` to check the output looks sane.
 4. Merge `release/vX.Y.Z` into `main` with `--no-ff`.
 5. Tag on `main`: `git tag -a vX.Y.Z -m "mycnfm vX.Y.Z"`.
-6. Build from the tag; `git describe` yields exactly `vX.Y.Z`.
+6. Push `main`, `dev` and the tag to GitHub. The *Release* workflow tests the tag, builds Linux and macOS binaries with GoReleaser and publishes them with `docs/releases/vX.Y.Z.md` as the release notes — so that file must exist on the tag.
+7. For the GitLab mirror, push the same refs and attach the output of `make dist` (built from the tag, so `git describe` yields exactly `vX.Y.Z`) to the release by hand.
 
 ### Versioning
 
@@ -89,7 +90,7 @@ minor bump may include behaviour changes; they are always listed under
 
 The version string is not stored in the source. `make build` derives it from
 `git describe --tags --always --dirty` and injects it via
-`-ldflags "-X mycnfm/internal/version.Version=…"`. A plain `go build` reports
+`-ldflags "-X github.com/master2sid2/mycnfm/internal/version.Version=…"`. A plain `go build` reports
 `dev`.
 
 ## Project layout

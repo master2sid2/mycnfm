@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
 )
 
 const (
@@ -158,7 +158,7 @@ func (m optionEditorModel) view(width int) string {
 			lbl = frmFocusLabelStyle.Render(f.label)
 			bar = frmBarStyle.Render("│")
 		}
-		sb.WriteString(fmt.Sprintf("  %s %s %s\n", lbl, bar, f.inp.View()))
+		fmt.Fprintf(&sb, "  %s %s %s\n", lbl, bar, f.inp.View())
 	}
 
 	lbl := frmLabelStyle.Render("Enabled")
@@ -171,7 +171,7 @@ func (m optionEditorModel) view(width int) string {
 	if m.enabled {
 		box = lipgloss.NewStyle().Foreground(clrSuccess).Bold(true).Render("[x]")
 	}
-	sb.WriteString(fmt.Sprintf("  %s %s %s\n", lbl, bar, box))
+	fmt.Fprintf(&sb, "  %s %s %s\n", lbl, bar, box)
 
 	if m.err != "" {
 		sb.WriteString("\n" + frmErrStyle.Render("  ✗ "+m.err) + "\n")

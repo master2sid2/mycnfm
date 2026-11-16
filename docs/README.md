@@ -15,6 +15,7 @@ Also in the repository root: [README](../README.md), [CHANGELOG](../CHANGELOG.md
 
 | Version | Date | |
 |---|---|---|
+| [0.2.1](releases/v0.2.1.md) | 2026-11-16 | private file writes, newline escaping, first-run password confirmation |
 | [0.2.0](releases/v0.2.0.md) | 2026-09-20 | auto-wipe timer, session unlock, `apply` / `list`, `[mysqldump]` sections, drift detection |
 | [0.1.1](releases/v0.1.1.md) | 2026-09-16 | header version display fix |
 | [0.1.0](releases/v0.1.0.md) | 2026-09-16 | first release |

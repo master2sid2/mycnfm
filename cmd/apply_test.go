@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
 )
 
 func newTestStore(t *testing.T) *config.Store {

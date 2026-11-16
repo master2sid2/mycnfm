@@ -13,10 +13,9 @@ Only the latest release receives fixes.
 
 Please **do not open a public issue** for a security problem.
 
-<!-- TODO(maintainer): add a private contact (security e-mail address or the
-     repository's private vulnerability reporting link) before publishing. -->
-
-Report it privately to the maintainer, with the version (`mycnfm --version`),
+Report it privately through GitHub's
+[private vulnerability reporting](https://github.com/master2sid2/mycnfm/security/advisories/new),
+with the version (`mycnfm --version`),
 your platform, and steps to reproduce. You should get an acknowledgement within
 a few days, and a fix or a decision within a reasonable time after that. Please
 allow time for a release before disclosing.
@@ -38,7 +37,7 @@ Be explicit about these when deciding whether the tool suits you.
 - **Revealed passwords.** `ctrl+r` shows a password on screen; it can appear in scrollback, screenshots or screen sharing.
 - **Exports.** `mycnfm export` writes **every password in plaintext JSON**. Delete the file when finished; do not commit or send it.
 - **Memory.** Secrets are not zeroed after use and may be swapped to disk.
-- **Weak master passwords.** None is enforced, and the first-run prompt has no confirmation. Argon2id slows guessing; it cannot rescue a weak password. Use a long one, and run `mycnfm passwd` if you mistyped it.
+- **Weak master passwords.** None is enforced. Argon2id slows guessing; it cannot rescue a weak password. Use a long one.
 - **The timer's visibility.** The background process's command line shows the path of `~/.my.cnf`, a hash of its content and the deadline — no secrets, but not invisible.
 - **Concurrent use.** There is no locking between two running instances; the last save wins.
 - **Loss of the master password.** It cannot be recovered. Keep an export somewhere safe if that matters to you.
