@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/fsutil"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/fsutil"
 )
 
 // defaultJSONPath returns ./mycnfm-export.json relative to the current

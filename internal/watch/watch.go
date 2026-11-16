@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/mycnf"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/mycnf"
 )
 
 const (

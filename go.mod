@@ -1,4 +1,4 @@
-module mycnfm
+module github.com/master2sid2/mycnfm
 
 go 1.26.1
 

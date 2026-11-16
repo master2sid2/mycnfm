@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
 )
 
 // ── Sorting ───────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ func (s sortMode) label(contextLabel string) string {
 		return contextLabel
 	case sortByUpdated:
 		return "updated"
-	default:
+	default: // sortByName, the zero value
 		return "name"
 	}
 }

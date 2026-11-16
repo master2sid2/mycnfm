@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
 )
 
 func TestRenderMatchesApplyWithoutTouchingDisk(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/config"
 )
 
 // optionCatalogDoneMsg closes the catalog and returns to the list.
@@ -317,7 +317,7 @@ func (m optionDefEditorModel) view(width int) string {
 			lbl = frmFocusLabelStyle.Render(f.label)
 			bar = frmBarStyle.Render("│")
 		}
-		sb.WriteString(fmt.Sprintf("  %s %s %s\n", lbl, bar, f.inp.View()))
+		fmt.Fprintf(&sb, "  %s %s %s\n", lbl, bar, f.inp.View())
 	}
 
 	if m.err != "" {

@@ -1,0 +1,33 @@
+# Release builds for GitHub, run by .github/workflows/release.yml on a v* tag.
+# The same binaries can be built locally with "make dist" (used for GitLab).
+version: 2
+
+project_name: mycnfm
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      # The tag, with its "v": the version string is shown as-is everywhere.
+      - -X github.com/master2sid2/mycnfm/internal/version.Version={{ .Tag }}
+    goos: [linux, darwin] # Windows is not supported
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [binary]
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: SHA256SUMS
+
+changelog:
+  disable: true # the notes come from docs/releases/<tag>.md
+
+release:
+  footer: |
+    ### Install
+    Download the binary for your platform, check it against `SHA256SUMS`, make it executable and put it on your `PATH`, or run `go install github.com/master2sid2/mycnfm@{{ .Tag }}`.

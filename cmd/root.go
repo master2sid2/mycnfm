@@ -11,11 +11,11 @@ import (
 
 	"golang.org/x/term"
 
-	"mycnfm/internal/config"
-	"mycnfm/internal/mycnf"
-	"mycnfm/internal/tui"
-	"mycnfm/internal/version"
-	"mycnfm/internal/watch"
+	"github.com/master2sid2/mycnfm/internal/config"
+	"github.com/master2sid2/mycnfm/internal/mycnf"
+	"github.com/master2sid2/mycnfm/internal/tui"
+	"github.com/master2sid2/mycnfm/internal/version"
+	"github.com/master2sid2/mycnfm/internal/watch"
 )
 
 // Execute is the CLI entry point. It parses minimal flags/subcommands,
@@ -181,7 +181,7 @@ func reorderFlagsFirst(args []string, names ...string) []string {
 func confirm(prompt string) bool {
 	fmt.Fprint(os.Stderr, prompt+" [y/N] ")
 	var line string
-	fmt.Fscanln(os.Stdin, &line)
+	_, _ = fmt.Fscanln(os.Stdin, &line) // no input (EOF) means "no"
 	line = strings.ToLower(strings.TrimSpace(line))
 	return line == "y" || line == "yes"
 }
