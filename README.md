@@ -15,19 +15,9 @@ tags). Pick a profile and it writes `~/.my.cnf` for you; when you are done —
 or after an hour, by default — it wipes the file again so no password is left
 on disk.
 
-*Illustrative sketch of the interface (not a real screenshot):*
+![mycnfm: open an environment, apply a profile, search, then the written ~/.my.cnf and mycnfm clean](docs/demo/mycnfm.gif)
 
-```
-🗄  mycnfm  ›  stage                                  ● stage/auth-01 · wipes in 47m   v0.2.1
-╭─ list ────────────────────────────╮ ╭─ details ─────────────────────────╮
-│ ── AUTH ───────────────────────── │ │ auth-01  ● ACTIVE                 │
-│ ▶  auth-01  ●                     │ │ Group     auth                    │
-│    app@/run/mysqld/mysqld.sock    │ │ Path      stage                   │
-│    [prod] [ro]                    │ │ User      app                     │
-│ ── MAIL ───────────────────────── │ │ Password  ••••••••                │
-│    mail-01                        │ │ Tags      prod  ro                │
-╰───────────────────────────────────╯ ╰───────────────────────────────────╯
-```
+*Recorded with made-up profiles from [docs/demo/vault.json](docs/demo/vault.json).*
 
 ## Features
 
