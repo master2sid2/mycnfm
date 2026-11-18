@@ -35,8 +35,12 @@ shell its own session keyring, so key-cache experiments do not affect your real
 login session.
 
 Other Makefile targets: `run`, `install`, `uninstall`, `tidy`, `clean`,
-`mycnf-clean`, `release`, `build-darwin[-arm64|-amd64]`. Each rule has a
-`## target: description` comment above it.
+`mycnf-clean`, `release`, `build-darwin[-arm64|-amd64]`, `dist`, and `demo`,
+which re-records the README animation (`docs/demo/mycnfm.gif`) with
+[VHS](https://github.com/charmbracelet/vhs) in Docker. Each rule has a
+`## target: description` comment above it. Documentation-only changes such as
+the demo may go straight to `main` (and are then merged into `dev`), so the
+README on GitHub does not have to wait for a release.
 
 ## Before you open a change
 

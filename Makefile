@@ -7,7 +7,7 @@ DIST_DIR   := dist
 
 PLATFORMS  := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build build-darwin build-darwin-arm64 build-darwin-amd64 dist run clean test vet fmt install uninstall tidy release mycnf-clean
+.PHONY: all build build-darwin build-darwin-arm64 build-darwin-amd64 dist demo run clean test vet fmt install uninstall tidy release mycnf-clean
 
 all: build
 
@@ -65,6 +65,11 @@ install: build
 ## uninstall: remove the installed binary
 uninstall:
 	rm -f $(INSTALL_DIR)/$(BINARY)
+
+## demo: record docs/demo/mycnfm.gif with VHS from made-up profiles (needs Docker)
+demo: build
+	docker run --rm --shm-size=1g --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/vhs -w /vhs \
+		ghcr.io/charmbracelet/vhs:v0.12.1 docs/demo/mycnfm.tape
 
 ## clean: remove the local build artifact (does not touch ~/.my.cnf or the vault)
 clean:
